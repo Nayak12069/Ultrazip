@@ -15,7 +15,7 @@ const { pathfinder, Movements, goals } = require('mineflayer-pathfinder');
 const { GoalNear, GoalFollow, GoalBlock } = goals;
 const pvp           = require('mineflayer-pvp').plugin;
 const armorManager  = require('mineflayer-armor-manager');
-const autoEat       = require('mineflayer-auto-eat').plugin;
+const autoEat       = require('mineflayer-auto-eat').loader;
 const fetch         = (...a) => import('node-fetch').then(m => m.default(...a));
 const fs            = require('fs');
 const path          = require('path');
@@ -28,7 +28,7 @@ const CONFIG = {
   host:     'Nayak_SMP_.aternos.me',
   port:     29826,
   username: 'Nayak_Guard',
-  version:  '1.21.10',
+  version:  '1.21.9',
   auth:     'offline',         // 'offline' or 'microsoft'
 
   // Your in-game name — CHANGE THIS
@@ -36,7 +36,7 @@ const CONFIG = {
 
   // Claude AI API key — get free at console.anthropic.com
   // Bot works without it but AI brain won't think/respond smart
-  claudeApiKey: 'YOUR_CLAUDE_API_KEY_HERE',
+  claudeApiKey: process.env.CLAUDE_API_KEY || 'YOUR_CLAUDE_API_KEY_HERE',
 
   // Behavior
   autoDefend:        true,
