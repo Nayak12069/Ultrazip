@@ -139,6 +139,7 @@ bot.once('spawn', async () => {
   const movements = new Movements(bot);
   movements.canDig = false;
   bot.pathfinder.setMovements(movements);
+  bot._defaultMovements = movements;
 
   try {
     bot.autoEat.setOpts({
@@ -528,8 +529,10 @@ async function handleChat(username, message) {
     bot.chat('On it bro! 🏃');
   }
   else if (msg === '!stop' || msg === 'stop' || msg.includes('stay here')) {
-    state.following = false; state.inCombat = false; state.mode = 'idle';
+    state.following = false; state.inCombat = false; state.mode = 'idle'; state.mining = false;
     bot.pvp.stop(); bot.pathfinder.setGoal(null);
+    // Restore safe movements (no digging)
+    if (bot._defaultMovements) bot.pathfinder.setMovements(bot._defaultMovements);
     bot.chat('Staying here 😎');
   }
   else if (msg === '!come' || msg === 'come' || msg.includes('come here') || msg.includes('come to me')) {
@@ -573,9 +576,14 @@ async function handleChat(username, message) {
       bot.chat("I'm not sleeping bro!");
     }
   }
-  else if (msg === '!mine' || msg.includes('go mine') || msg.includes('mine some') || msg.includes('find diamonds')) {
+  else if (msg === '!mine' || msg.includes('go mine') || msg.includes('mine some') || msg.includes('find diamonds') || msg.includes('mine iron') || msg.includes('mine diamond') || msg.includes('mine gold') || msg.includes('mine coal')) {
     state.mode = 'mine'; state.following = false;
+    // Enable digging so bot can navigate underground to reach ores
+    const mineMovements = new Movements(bot);
+    mineMovements.canDig = true;
+    bot.pathfinder.setMovements(mineMovements);
     bot.chat('Mining mode!! 🪨 Finding the best stuff!!');
+    addEvent('mine_mode_started');
   }
 
   // ── MEMORY ──
@@ -618,29 +626,31 @@ async function handleChat(username, message) {
   }
 }
 
-// 1.19+ signed chat — primary handler
+// 1.19+ signed chat handler (also handles legacy via <username> fallback)
 bot.on('messagestr', async (message, position, jsonMsg, sender) => {
   if (position !== 'chat') return;
   let username = '';
+
   if (sender && typeof sender === 'object') {
     username = sender.name || sender.username || '';
   } else if (typeof sender === 'string') {
-    // In 1.19+, sender is a UUID — resolve to actual username via player list
+    // 1.19+: sender is a UUID — resolve to actual username from player list
     const playerByUUID = Object.values(bot.players).find(p => p.uuid === sender);
     if (playerByUUID) username = playerByUUID.username;
   }
-  // Legacy fallback: parse <username> from message text
-  if (!username) {
-    const m = message.match(/^<([^>]+)>/);
-    if (m) { username = m[1]; message = message.slice(m[0].length).trim(); }
-  }
-  console.log(`[CHAT] resolved: ${username} | msg: ${message}`);
-  if (username) await handleChat(username, message);
-});
 
-// Legacy fallback for older server versions
-bot.on('chat', async (username, message) => {
-  await handleChat(username, message);
+  // Always strip <username> prefix from message text regardless of how username was resolved
+  const prefixMatch = message.match(/^<([^>]+)>\s*/);
+  if (prefixMatch) {
+    // If username wasn't resolved yet, grab it from the prefix
+    if (!username) username = prefixMatch[1];
+    message = message.slice(prefixMatch[0].length);
+  }
+
+  if (username) {
+    console.log(`[CHAT] ${username}: ${message}`);
+    await handleChat(username, message);
+  }
 });
 
 // ─────────────────────────────────────────────
@@ -818,22 +828,38 @@ function equipBestGear() {
 const ORE_PRIORITY = [
   'ancient_debris','diamond_ore','deepslate_diamond_ore','emerald_ore',
   'gold_ore','deepslate_gold_ore','iron_ore','deepslate_iron_ore','coal_ore',
+  'deepslate_coal_ore',
 ];
 async function mineNearbyOres() {
   if (state.mining || state.inCombat) return;
   state.mining = true;
+  let found = false;
   try {
     for (const oreName of ORE_PRIORITY) {
+      if (state.mode !== 'mine') break;
       const blockId = bot.registry.blocksByName[oreName]?.id;
       if (!blockId) continue;
-      const block = bot.findBlock({ matching: blockId, maxDistance: 32 });
+      const block = bot.findBlock({ matching: blockId, maxDistance: 48 });
       if (block) {
+        found = true;
+        console.log(`[mine] Found ${oreName} at ${block.position}`);
         await bot.pathfinder.goto(new GoalBlock(block.position.x, block.position.y, block.position.z));
-        if (bot.canDigBlock(block)) await bot.dig(block);
-        state.mining = false; return;
+        if (bot.canDigBlock(block)) {
+          await bot.dig(block);
+          console.log(`[mine] Mined ${oreName}`);
+        }
+        break;
       }
     }
-  } catch (e) {}
+    if (!found && state.mode === 'mine') {
+      bot.chat('No ores nearby bro! Try going underground 🪨');
+      console.log('[mine] No ores found within 48 blocks');
+      state.mode = 'idle';
+      state.following = true;
+    }
+  } catch (e) {
+    console.log('[mine] error:', e.message);
+  }
   state.mining = false;
 }
 
