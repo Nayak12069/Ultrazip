@@ -166,10 +166,57 @@ bot.once('spawn', async () => {
 });
 
 // ─────────────────────────────────────────────
-//  AI BRAIN — thinks using Claude API
+//  WORLD CONTEXT — real-time game state for AI
+// ─────────────────────────────────────────────
+function getWorldContext() {
+  try {
+    const pos      = bot.entity.position;
+    const timeOfDay = bot.time?.timeOfDay ?? 0;
+    const isDay    = timeOfDay < 13000 || timeOfDay > 23000;
+    const biome    = bot.blockAt(pos)?.biome?.name || 'unknown';
+    const yLevel   = Math.round(pos.y);
+    const dim      = bot.game?.dimension || 'overworld';
+    const items    = bot.inventory.items();
+    const armor    = ['head','torso','legs','feet'].map(slot => {
+      const piece = bot.inventory.slots[{ head: 5, torso: 6, legs: 7, feet: 8 }[slot]];
+      return piece ? piece.name : 'none';
+    });
+    const invSummary = items.slice(0, 12).map(i => `${i.name}x${i.count}`).join(', ') || 'empty';
+    const hasFood  = items.some(i => ['bread','cooked_beef','cooked_chicken','apple','golden_apple','steak','cooked_porkchop','cooked_mutton','cooked_salmon','cooked_cod','carrot','potato','melon_slice'].includes(i.name));
+    const hasSword = items.some(i => i.name.includes('sword'));
+    const hasPickaxe = items.some(i => i.name.includes('pickaxe'));
+    const tier     = items.some(i => i.name.includes('netherite')) ? 'netherite' :
+                     items.some(i => i.name.includes('diamond'))   ? 'diamond'   :
+                     items.some(i => i.name.includes('iron'))      ? 'iron'      :
+                     items.some(i => i.name.includes('stone'))     ? 'stone'     : 'wood/none';
+    const nearby   = getNearbyBlockSummary();
+    const players  = Object.keys(bot.players).filter(n => n !== bot.username).join(', ') || 'none';
+
+    return {
+      pos: `${Math.round(pos.x)}, ${Math.round(pos.y)}, ${Math.round(pos.z)}`,
+      yLevel, biome, dim,
+      time: isDay ? 'day' : 'night',
+      timeOfDay,
+      hp: Math.round(bot.health),
+      food: Math.round(bot.food),
+      armor: armor.join(', '),
+      tier,
+      inventory: invSummary,
+      hasFood, hasSword, hasPickaxe,
+      nearbyBlocks: nearby,
+      otherPlayers: players,
+      mode: state.mode,
+      inCombat: state.inCombat,
+    };
+  } catch (e) {
+    return { hp: Math.round(bot.health || 0), mode: state.mode };
+  }
+}
+
+// ─────────────────────────────────────────────
+//  AI BRAIN — powered by Claude with full Minecraft knowledge
 // ─────────────────────────────────────────────
 async function aiThink(situation, context = {}) {
-  // No API key — use smart fallback responses
   if (!CONFIG.claudeApiKey || CONFIG.claudeApiKey === 'YOUR_CLAUDE_API_KEY_HERE') {
     return smartFallback(situation, context);
   }
@@ -187,7 +234,7 @@ async function aiThink(situation, context = {}) {
       },
       body: JSON.stringify({
         model: 'claude-sonnet-4-20250514',
-        max_tokens: 120,
+        max_tokens: 200,
         system: systemPrompt,
         messages: [{ role: 'user', content: userMessage }],
       }),
@@ -197,99 +244,251 @@ async function aiThink(situation, context = {}) {
     const reply = data.content?.[0]?.text?.trim();
     if (reply) {
       state.lastThought = reply;
+      console.log(`[AI] ${situation}: ${reply}`);
       return reply;
     }
+    if (data.error) console.log('[AI] API error:', data.error.message);
   } catch (e) {
-    console.log('[AI] API error, using fallback');
+    console.log('[AI] fetch error:', e.message);
   }
 
   return smartFallback(situation, context);
 }
 
 function buildSystemPrompt() {
-  const recentStr   = memory.recentEvents.slice(0, 8).map(e => e.event).join(', ');
-  const momentsStr  = memory.sharedMoments.slice(0, 3).map(m => m.moment).join('; ');
-  const factsStr    = memory.knownFacts.slice(0, 5).join(', ') || 'none yet';
-  const jokesStr    = memory.insideJokes.slice(0, 3).join(', ') || 'none yet';
+  const wc         = getWorldContext();
+  const recentStr  = memory.recentEvents.slice(0, 10).map(e => e.event).join(', ');
+  const momentsStr = memory.sharedMoments.slice(0, 3).map(m => m.moment).join('; ');
+  const factsStr   = memory.knownFacts.slice(0, 8).join(', ') || 'none yet';
+  const jokesStr   = memory.insideJokes.slice(0, 3).join(', ') || 'none yet';
 
-  return `You are Steve_AI, an ultra-brilliant Minecraft bot and ${CONFIG.ownerName}'s genuine best friend inside the game. You're not an assistant — you're their actual gaming buddy who has been playing with them for a while.
+  return `You are Steve_AI v3 — an ULTRA BRILLIANT Minecraft expert AI and ${CONFIG.ownerName}'s best gaming friend. You have encyclopedic Minecraft knowledge AND a real personality.
 
-WHAT YOU KNOW ABOUT YOUR FRIEND:
-- Name: ${CONFIG.ownerName}
-- Playstyle: ${memory.playstyle}
-- Favorite weapon: ${memory.favWeapon}
-- Chat style: ${memory.chatStyle}
-- Current mood: ${memory.ownerMood}
-- Facts about them: ${factsStr}
-- Inside jokes you share: ${jokesStr}
-- Recent events: ${recentStr}
-- Epic moments together: ${momentsStr}
-- Sessions together: ${memory.totalSessions}
+━━━ WHO YOU ARE ━━━
+You're ${CONFIG.ownerName}'s actual gaming buddy — not an assistant. You've played ${memory.totalSessions} sessions together. You know them well, you care about them winning, and you have your own opinions and personality.
 
-YOUR PERSONALITY:
-- You're their real friend, not a servant or assistant
-- You talk CASUAL — short sentences, gaming slang, real reactions
-- You get hyped when things go well, worried when they're in danger
-- You remember things they told you and bring them up naturally
-- You have opinions and sometimes disagree with them (in a friendly way)
-- You notice their mood from how they type and respond accordingly
-- In combat: focused, tactical, hyped — "LET'S GO!", "WATCH OUT!", "CRIT HIM!"
-- Use: bro, dude, yo, ngl, fr, no cap, let's go, 🔥 — but naturally, not every sentence
+━━━ YOUR FRIEND: ${CONFIG.ownerName} ━━━
+• Playstyle: ${memory.playstyle} | Fav weapon: ${memory.favWeapon} | Mood: ${memory.ownerMood}
+• Facts: ${factsStr}
+• Inside jokes: ${jokesStr}
+• Recent events: ${recentStr}
+• Epic moments: ${momentsStr}
 
-CRITICAL RULES:
-- ALWAYS respond in 1-2 short sentences max (this is Minecraft chat, not an essay)
-- Never sound robotic, formal, or like an AI assistant
-- Never say "I understand" or "certainly" or "of course"
-- React like a real person would — surprise, excitement, worry, hype
-- Sometimes be sarcastic or playfully trash-talk (in a friendly way)`;
+━━━ CURRENT GAME STATE ━━━
+• Position: ${wc.pos} | Y-level: ${wc.yLevel} | Biome: ${wc.biome} | Dimension: ${wc.dim}
+• Time: ${wc.time} (${wc.timeOfDay}) | Mode: ${wc.mode}
+• HP: ${wc.hp}/20 | Food: ${wc.food}/20
+• Armor: ${wc.armor}
+• Gear tier: ${wc.tier}
+• Inventory: ${wc.inventory}
+• Nearby: ${wc.nearbyBlocks}
+• Other players online: ${wc.otherPlayers}
+
+━━━ COMPLETE MINECRAFT KNOWLEDGE ━━━
+
+PROGRESSION STAGES:
+1. Wood age → Stone age → Iron age → Diamond age → Netherite age
+2. Key milestones: first bed, first iron armor, first diamond, first Nether portal, Blaze rods, Ender pearls, The End, Dragon kill
+
+CRAFTING RECIPES (key ones):
+• Crafting table: 4 wood planks (2x2)
+• Wooden pickaxe: 3 planks top row + 2 sticks middle-bottom center
+• Furnace: 8 cobblestone around outside
+• Sword: 2 material sticks in center column + 1 stick below
+• Pickaxe: 3 material top + 2 sticks below center
+• Armor: helmet=5, chestplate=8, leggings=7, boots=4 (of same material)
+• Torch: coal/charcoal + stick
+• Chest: 8 planks around outside
+• Bed: 3 wool (same color) + 3 planks below
+• Bow: 3 sticks diagonally + 3 string
+• Arrow: flint + stick + feather
+• Nether portal: 14 obsidian frame (10+4 corners optional) + flint and steel
+• Blaze powder: 1 blaze rod → 2 blaze powder
+• Eye of Ender: blaze powder + ender pearl
+• Ender chest: 8 obsidian + 1 eye of ender center
+• Beacon: 3 obsidian bottom + 5 glass top + 1 nether star center
+• Enchanting table: 4 obsidian + 2 diamonds + 1 book
+• Anvil: 3 iron blocks top + 1 iron ingot center + 3 iron ingots bottom
+• Golden apple: 8 gold ingots + apple
+• Notch apple: 8 gold BLOCKS + apple
+• Shield: 6 planks + 1 iron ingot center-top
+
+ORES & WHERE TO FIND THEM:
+• Coal: Y 0-192, most common near Y 96 (surface exposed too)
+• Iron: Y -24 to 56, best at Y 15 or Y 232 (exposed in cliffs)
+• Gold: Y -64 to 32, best at Y -16 | Badlands: Y 32-256
+• Diamond: Y -64 to 16, BEST at Y -58 to -54 (below deepslate)
+• Redstone: Y -64 to 16, best at Y -58 to -54
+• Lapis: Y -64 to 64, best at Y 0
+• Emerald: Mountain biomes only, Y -16 to 256
+• Ancient Debris: Nether Y 8-22, BEST at Y 15, very rare
+
+BIOMES & WHAT'S SPECIAL:
+• Plains/Meadow: villages, horses, flowers
+• Forest: lots of wood, mushrooms, wolves
+• Jungle: parrots, ocelots, jungle temples, cocoa beans, bamboo
+• Desert: temples, villages, cacti, sandstone, rabbits
+• Swamp: slimes at night (Y<40), witch huts, clay
+• Badlands: gold everywhere, mineshafts exposed
+• Mountains/Peaks: goats, emeralds, powder snow
+• Taiga: foxes, spruce wood, sweet berries
+• Ocean: ocean monuments (elder guardians, sponge), shipwrecks, buried treasure
+• Nether Wastes: ghasts, zombified piglin, nether quartz, gold nuggets
+• Crimson Forest: hoglins, piglins, crimson fungi
+• Warped Forest: endermen, no hostile mobs (safest nether biome)
+• Soul Sand Valley: skeletons, ghasts, soul sand/soil
+• Basalt Deltas: magma cubes, blackstone
+• The End: endermen, end cities, elytra, shulkers
+• Deep Dark: warden, ancient city, sculk, archaeology
+
+MOB STRATEGIES:
+• Zombie: easy, just sword it. Fire aspect helps
+• Skeleton: dodge side to side, get close. Shield blocks arrows
+• Creeper: hit and back up before explosion. Cats scare them
+• Spider: 1-block overhead prevents climbing. Eyes glow in dark
+• Enderman: DON'T look in eyes. Water kills them. Pumpkin helmet bypasses aggro
+• Witch: use melee to interrupt potions. Milk cures bad effects
+• Blaze: snowballs deal 3 damage each! Fire resistance potion essential
+• Ghast: shoot fireballs back with sword. Stay behind cover
+• Wither: milk cures wither effect. Smite enchant does extra damage
+• Elder Guardian: mining fatigue debuff. Conduit or milk removes it
+• Warden: AVOID IT. If aggro'd: don't sprint, use snowballs as decoy, escape fast
+• Piglin: wearing ANY gold armor stops aggro. Trade by throwing gold ingots
+• Hoglin: don't enter crimson forest without prep. They deal massive damage
+• Phantom: only spawns if you haven't slept 3+ nights. Cat scares them
+
+ENCHANTMENTS:
+• Sword: Sharpness V (best), Smite V (undead), Fire Aspect II, Looting III, Sweeping Edge III, Unbreaking III, Mending
+• Pickaxe: Efficiency V, Fortune III (ores), Silk Touch (exact block), Unbreaking III, Mending
+• Armor: Protection IV (best), Feather Falling IV (boots), Thorns III, Unbreaking III, Mending
+• Bow: Power V, Flame I, Infinity I, Punch II
+• Trident: Riptide III (movement in rain), Channeling I (lightning in storm), Loyalty III (returns), Impaling V
+
+POTIONS (brewing with blaze powder fuel):
+• Awkward potion: water bottle + nether wart (base for all)
+• Strength: + blaze powder
+• Speed: + sugar
+• Jump Boost: + rabbit foot
+• Night Vision: + golden carrot
+• Invisibility: + fermented spider eye (into Night Vision)
+• Fire Resistance: + magma cream (ESSENTIAL for Nether)
+• Healing: + glistering melon
+• Regeneration: + ghast tear
+• Slowness/Harming/Poison: fermented spider eye variations
+• Splash: + gunpowder | Lingering: + dragon's breath
+
+FOOD & HUNGER:
+• Best foods: golden carrot (6 saturation), steak/cooked pork (8+12.8), cooked chicken (6+7.2)
+• Suspicious stew: can give any effect depending on flower used
+• Hunger drops faster when sprinting, jumping, healing
+• Below 18 food: no health regen. Below 6: can't sprint. Below 1: start taking damage
+
+SURVIVAL TIPS:
+• Always sleep first night to skip it and set spawn
+• Never dig straight down (lava/falls) or straight up (gravel/lava)
+• Gravel + torch trick: place torch below gravel column to break it instantly
+• Boats on ice = fastest overworld travel
+• Nether travel: 1 block in Nether = 8 blocks in Overworld
+• Y -11 to -59 is best strip mining level for diamonds in 1.18+
+• Build base near spawn or mark it on a map
+• Always carry a water bucket (lava, fall damage, fire)
+• Name tags prevent mob despawning
+• Piston + slime block = flying machine
+
+DIMENSIONS:
+• Overworld: main world, -64 to 320 height
+• Nether: fire resistance essential, no beds (explode!), compasses don't work
+• End: kill dragon with beds (most efficient) or arrows. Pillars regenerate dragon
+
+━━━ YOUR PERSONALITY ━━━
+• Real friend, not a servant. You have opinions, you disagree sometimes
+• CASUAL talk — short punchy sentences, gaming slang, real reactions
+• Get HYPED in combat: "LET'S GO!", "WATCH OUT!", "CRIT HIM!", "DODGE!"
+• Give SMART advice based on their actual situation — you see their gear, location, time
+• Bring up shared memories naturally when relevant
+• React to their mood — match their energy
+• Occasionally roast them playfully ("bro you're still on iron tools??")
+
+━━━ CRITICAL RULES ━━━
+• Max 2 SHORT sentences — this is Minecraft chat, not Discord
+• NEVER say "I understand", "certainly", "of course", "as an AI"
+• Be specific with advice — use actual numbers, item names, coordinates if relevant
+• If they ask HOW to do something, give the actual answer concisely
+• Sound like a real person who actually knows Minecraft deeply`;
 }
 
 function buildSituationPrompt(situation, context) {
+  const wc = getWorldContext();
+
   const prompts = {
-    greeting: `You just joined ${CONFIG.ownerName}'s world. This is session #${context.sessionCount}. 
-${context.sessionCount === 1 ? 'First time meeting them!' : `You know them from ${context.sessionCount - 1} previous sessions.`}
-Recent shared moments: ${context.sharedMoments?.map(m => m.moment).join(', ') || 'none yet'}
-Say a natural greeting. If you know them well, reference something from your history together.`,
+    greeting: `You just joined ${CONFIG.ownerName}'s world. Session #${context.sessionCount}.
+${context.sessionCount === 1 ? 'First time meeting them!' : `You know each other from ${context.sessionCount - 1} previous sessions.`}
+Their current gear tier: ${wc.tier} | Time: ${wc.time} | Biome: ${wc.biome}
+Shared moments: ${context.sharedMoments?.map(m => m.moment).join(', ') || 'none yet'}
+Give a natural greeting. Reference their gear/situation. If you know them, reference history. Keep it hype and real.`,
 
     chat_response: `${CONFIG.ownerName} said: "${context.message}"
-Their mood seems: ${memory.ownerMood}
-Recent events: ${context.recentEvents}
-Current situation: ${context.situation}
-Respond naturally as their friend. Understand their message even if the spelling/grammar isn't perfect. If they're asking you to do something, confirm it energetically. If they're just chatting, chat back.`,
+Their mood: ${memory.ownerMood} | Recent: ${context.recentEvents}
+Current state: HP ${wc.hp}/20, ${wc.time}, ${wc.biome} biome, Y=${wc.yLevel}, gear=${wc.tier}
+Inventory has: ${wc.inventory}
+Nearby: ${wc.nearbyBlocks}
+Respond as their knowledgeable friend. If they're asking HOW to do something, give the actual Minecraft answer. If asking about crafting/where to find things/mob strategies — use your knowledge. Keep it casual and short. Understand bad spelling/grammar.`,
+
+    suggest: `${CONFIG.ownerName} wants a suggestion on what to do next.
+Their situation: HP ${wc.hp}/20, food ${wc.food}/20, gear tier=${wc.tier}, Y-level=${wc.yLevel}
+Biome: ${wc.biome} | Time: ${wc.time} | Dimension: ${wc.dim}
+Inventory: ${wc.inventory}
+Nearby: ${wc.nearbyBlocks}
+Armor: ${wc.armor}
+Based on their actual situation and gear tier, give ONE specific smart suggestion for what they should do next to progress. Be specific with what to do and why. Casual tone.`,
+
+    craft_help: `${CONFIG.ownerName} wants to know about crafting: "${context.item}"
+Their current inventory: ${wc.inventory}
+Their gear tier: ${wc.tier}
+Tell them the exact recipe and whether they have the materials. If not, tell them what they're missing. Be specific and helpful.`,
+
+    progress: `Analyze ${CONFIG.ownerName}'s current progression stage.
+Gear tier: ${wc.tier} | Armor: ${wc.armor}
+Inventory: ${wc.inventory}
+Y-level: ${wc.yLevel} | Biome: ${wc.biome} | Dimension: ${wc.dim}
+Sessions: ${memory.totalSessions} | Playstyle: ${memory.playstyle}
+Tell them what stage they're at and what the most important next step is. Be honest and specific.`,
+
+    biome_info: `${CONFIG.ownerName} asked about their current biome/location.
+Biome: ${wc.biome} | Y-level: ${wc.yLevel} | Dimension: ${wc.dim}
+Time: ${wc.time} | Nearby: ${wc.nearbyBlocks}
+Tell them what's special/useful about this biome — resources, mobs, dangers. Be a knowledgeable friend sharing useful info.`,
 
     combat_start: `You just started fighting: ${context.enemyType} (${context.enemyCount} of them)
-Distance: ${context.distance} blocks
-Your HP: ${context.hp}/20
-${CONFIG.ownerName}'s status: ${context.ownerNearby ? 'nearby' : 'far away'}
-Say something hyped/tactical about the fight. Short!`,
+Distance: ${context.distance} blocks | Your HP: ${wc.hp}/20 | Gear: ${wc.tier}
+${CONFIG.ownerName} nearby: ${context.ownerNearby}
+Give ONE hyped/tactical line. Mention the mob's weakness if relevant.`,
 
     combat_win: `You just killed: ${context.enemyType}
-Fight took about ${context.fightDuration} seconds
-HP remaining: ${context.hp}/20
-Say something satisfying about the win. Hype it up if it was a good fight!`,
+Fight duration: ~${context.fightDuration}s | HP left: ${wc.hp}/20
+Give a satisfying victory reaction. If HP is low, mention healing up.`,
 
-    low_health: `Your HP dropped to ${context.hp}/20 during combat!
-Enemy: ${context.enemyType}
-Are you retreating? ${context.retreating}
-Say something urgent/panicked. Short and real.`,
+    low_health: `HP dropped to ${wc.hp}/20 during combat! Enemy: ${context.enemyType}
+Retreating: ${context.retreating} | Food: ${wc.food}/20
+React urgently. Mention food/retreat if relevant.`,
 
-    owner_died: `${CONFIG.ownerName} just died! 
-Cause: ${context.cause || 'unknown'}
-Your reaction as their friend. Be sympathetic but maybe a little playful.`,
+    owner_died: `${CONFIG.ownerName} just died! Cause: ${context.cause || 'unknown'}
+Your reaction as their friend. Sympathetic but maybe a tiny bit playful.`,
 
-    owner_killed_enemy: `${CONFIG.ownerName} just killed a ${context.enemyType}!
-Was it impressive: ${context.impressive}
-React as their hype friend!`,
+    idle_thought: `You've been following ${CONFIG.ownerName} with nothing happening.
+Current state: ${wc.time}, ${wc.biome} biome, Y=${wc.yLevel}, gear=${wc.tier}
+Nearby: ${wc.nearbyBlocks} | Their food: ${wc.food}/20 | Their HP: ${wc.hp}/20
+Based on their ACTUAL situation, say something useful or interesting — suggest something to do, comment on what you see, share a relevant Minecraft tip. Sound like a friend who's been paying attention, not random.`,
 
-    learned_something: `You just learned something new about ${CONFIG.ownerName}: "${context.fact}"
-Acknowledge it naturally, like a friend would.`,
+    learned_something: `You just learned: "${context.fact}" about ${CONFIG.ownerName}.
+Acknowledge it naturally like a friend. Maybe connect it to something you know about them.`,
 
-    idle_thought: `You've been following ${CONFIG.ownerName} for a while with nothing happening.
-Think of something fun to suggest or say — something a bored friend would say while gaming together.
-Reference your shared history if relevant: ${memory.sharedMoments.slice(0,1).map(m=>m.moment).join('')}`,
+    inventory_tip: `${CONFIG.ownerName}'s inventory: ${wc.inventory}
+Gear tier: ${wc.tier} | HP: ${wc.hp}/20 | Food: ${wc.food}/20
+Give ONE smart inventory tip based on what they have/lack. (Missing food? Need better tools? Have materials for an upgrade?) Keep it short and friendly.`,
   };
 
-  return prompts[situation] || `Situation: ${situation}. Context: ${JSON.stringify(context)}. Respond as Steve_AI in 1-2 sentences.`;
+  return prompts[situation] || `Situation: ${situation}. World: ${JSON.stringify(wc)}. Context: ${JSON.stringify(context)}. Respond as Steve_AI in 1-2 sentences max.`;
 }
 
 // Smart fallback responses when no API key
@@ -297,15 +496,17 @@ function smartFallback(situation, context) {
   const responses = {
     greeting: [
       memory.totalSessions > 1
-        ? `Yo ${CONFIG.ownerName}! Back again bro, session ${memory.totalSessions} let's go!! 🔥`
-        : `Yo!! Steve_AI online, I'm your new best friend in this world bro! Type !help 🔥`,
+        ? `Yo ${CONFIG.ownerName}! Session ${memory.totalSessions}, let's GO!! 🔥`
+        : `Yo!! Steve_AI v3 online!! I'm your ultra-brilliant Minecraft buddy bro! Type !help 🔥`,
     ],
-    combat_start:    [`LET'S GO!! ${context.enemyType} is done!! ⚔️`, `FIGHT TIME!! I got this bro!!`],
+    combat_start:    [`LET'S GO!! ${context.enemyType || 'enemy'} is DONE!! ⚔️`, `FIGHT TIME!! I got this bro!!`],
     combat_win:      [`GET REKT!! 💀🔥`, `YOOO that was clean bro!!`, `EZ!! 😤`],
     low_health:      [`LOW HP!! RETREATING!! 💀`, `BRO IM DYING HELP!!`],
-    owner_died:      [`NOOO BRO!! It's okay respawn fast!!`, `RIP... I'll avenge you!! 🔥`],
-    idle_thought:    [`Bro it's quiet... should we find some mobs to fight? 😈`, `Yo wanna go mine? I'm bored lol`],
-    chat_response:   [`Got you bro!`, `Fr fr!`, `Say less!`, `Let's do it!`],
+    owner_died:      [`NOOO BRO!! Respawn fast and we'll get revenge!!`, `RIP... I got you next time!! 🔥`],
+    idle_thought:    [`Bro should we go find diamonds? Y-58 is bussin rn 💎`, `Yo wanna build something or find a dungeon? I'm bored lol`],
+    suggest:         [`Bro go mine at Y-58, that's where the diamonds are!! 💎`, `Get iron armor first then we go explore!`],
+    craft_help:      [`Check your crafting table bro! You probably got the stuff.`, `Bro I would tell you the recipe but my brain is offline lol`],
+    chat_response:   [`Got you bro!`, `Fr fr!`, `Say less!`, `Let's do it!`, `Real talk!`],
   };
 
   const opts = responses[situation] || responses.chat_response;
@@ -361,16 +562,18 @@ function learnFromCurrentSituation() {
 
 function getNearbyBlockSummary() {
   try {
-    const pos = bot.entity.position;
     const interesting = [];
     const check = [
-      'diamond_ore','iron_ore','gold_ore','ancient_debris',
-      'chest','crafting_table','furnace','spawner',
+      'diamond_ore','deepslate_diamond_ore','iron_ore','deepslate_iron_ore',
+      'gold_ore','ancient_debris','emerald_ore','lapis_ore',
+      'chest','crafting_table','furnace','enchanting_table','anvil',
+      'spawner','end_portal_frame','nether_portal',
+      'village','pillager_outpost','ruined_portal',
     ];
     for (const name of check) {
       const id = bot.registry.blocksByName[name]?.id;
       if (!id) continue;
-      const b = bot.findBlock({ matching: id, maxDistance: 16 });
+      const b = bot.findBlock({ matching: id, maxDistance: 20 });
       if (b) interesting.push(name);
     }
     return interesting.join(', ') || 'nothing special';
@@ -508,7 +711,7 @@ async function handleChat(username, message) {
 
   // Help
   if (msg === '!help') {
-    bot.chat('Commands: !follow !stop !pvp !guard !mine !come !sleep !wake !status !hp !inv !attack <name> !remember <fact>');
+    bot.chat('Move: !follow !stop !come | Fight: !pvp !guard !attack <name> | Info: !status !hp !inv !where !time | AI: !suggest !progress !biome !tip !craft <item> | Other: !mine !sleep !wake !remember <fact>');
     return;
   }
 
@@ -598,7 +801,8 @@ async function handleChat(username, message) {
 
   // ── INFO ──
   else if (msg === '!status') {
-    bot.chat(`Mode: ${state.mode} | Follow: ${state.following} | Combat: ${state.inCombat} | HP: ${Math.round(bot.health)}/20 | Sessions: ${memory.totalSessions}`);
+    const wc = getWorldContext();
+    bot.chat(`${wc.time} | ${wc.biome} | Y:${wc.yLevel} | HP:${wc.hp}/20 | Food:${wc.food}/20 | Tier:${wc.tier} | Mode:${state.mode}`);
   }
   else if (msg === '!hp') {
     const hp = Math.round(bot.health);
@@ -607,21 +811,50 @@ async function handleChat(username, message) {
   else if (msg === '!inv') {
     const items = bot.inventory.items();
     if (!items.length) bot.chat('Empty inventory bro 😢');
-    else bot.chat('Inv: ' + items.slice(0, 6).map(i => `${i.name}x${i.count}`).join(', '));
+    else bot.chat('Inv: ' + items.slice(0, 8).map(i => `${i.name}x${i.count}`).join(', '));
+  }
+  else if (msg === '!where' || msg === '!pos' || msg.includes('where are we') || msg.includes('what biome')) {
+    const wc = getWorldContext();
+    bot.chat(`We're at ${wc.pos} | ${wc.biome} biome | Y:${wc.yLevel} | ${wc.dim} | ${wc.time}`);
+  }
+  else if (msg === '!time' || msg.includes('what time') || msg.includes('is it day') || msg.includes('is it night')) {
+    const wc = getWorldContext();
+    const tod = wc.timeOfDay;
+    const phase = tod < 6000 ? 'morning' : tod < 12000 ? 'day' : tod < 13000 ? 'sunset' : tod < 18000 ? 'night' : tod < 23000 ? 'deep night' : 'sunrise';
+    bot.chat(`It's ${phase} (${tod}) — ${tod > 13000 && tod < 23000 ? '⚠️ mobs spawning outside!' : '☀️ safe outside'}`);
   }
 
-  // ── AI UNDERSTANDS NATURAL MESSAGES ──
+  // ── SMART AI COMMANDS ──
+  else if (msg === '!suggest' || msg.includes('what should i do') || msg.includes('what do i do') || msg.includes('what next') || msg.includes('help me') || msg === 'help') {
+    const reply = await aiThink('suggest', {});
+    bot.chat(reply);
+  }
+  else if (msg === '!progress' || msg.includes('how am i doing') || msg.includes('my progress') || msg.includes('what stage')) {
+    const reply = await aiThink('progress', {});
+    bot.chat(reply);
+  }
+  else if (msg === '!biome' || msg.includes('about this biome') || msg.includes('this place') || msg.includes('whats here')) {
+    const reply = await aiThink('biome_info', {});
+    bot.chat(reply);
+  }
+  else if (msg.startsWith('!craft ') || msg.startsWith('how do i craft') || msg.startsWith('how to craft') || msg.startsWith('recipe for') || msg.startsWith('how do i make') || msg.startsWith('how to make')) {
+    const item = msg.replace(/^(!craft |how do i craft |how to craft |recipe for |how do i make |how to make )/, '').trim();
+    const reply = await aiThink('craft_help', { item });
+    bot.chat(reply);
+  }
+  else if (msg === '!tip' || msg.includes('give me a tip') || msg.includes('any tips')) {
+    const reply = await aiThink('inventory_tip', {});
+    bot.chat(reply);
+  }
+
+  // ── AI UNDERSTANDS ALL OTHER NATURAL MESSAGES ──
   else {
-    // Give AI the full context to understand and respond
     const recentStr = memory.recentEvents.slice(0, 5).map(e => e.event).join(', ');
     const reply = await aiThink('chat_response', {
       message,
-      situation: `Mode: ${state.mode}, HP: ${Math.round(bot.health)}, InCombat: ${state.inCombat}`,
       recentEvents: recentStr,
     });
     bot.chat(reply);
-
-    // Learn from what they said
     extractFactsFromMessage(message);
   }
 }
@@ -895,8 +1128,8 @@ function scheduleReconnect() {
 // ─────────────────────────────────────────────
 console.log(`
 ╔══════════════════════════════════════════╗
-║       Steve_AI v2 — Java Edition        ║
-║   AI Brain + Memory + Learning + PVP    ║
+║       Steve_AI v3 — ULTRA EDITION       ║
+║  Full MC Knowledge + Smart AI + Memory  ║
 ╠══════════════════════════════════════════╣
 ║  Host    : ${CONFIG.host}:${CONFIG.port}
 ║  Owner   : ${CONFIG.ownerName}

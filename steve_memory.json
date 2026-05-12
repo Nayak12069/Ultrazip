@@ -7,6 +7,18 @@
   "chatStyle": "casual",
   "recentEvents": [
     {
+      "time": 1778603736358,
+      "event": "bot_spawned"
+    },
+    {
+      "time": 1778603621405,
+      "event": "bot_slept"
+    },
+    {
+      "time": 1778603271841,
+      "event": "mine_mode_started"
+    },
+    {
       "time": 1778603220527,
       "event": "bot_spawned"
     },
@@ -41,8 +53,8 @@
   ],
   "sharedMoments": [],
   "ownerMood": "neutral",
-  "totalSessions": 41,
+  "totalSessions": 42,
   "knownFacts": [],
   "insideJokes": [],
-  "lastSeen": "2026-05-12T16:26:58.461Z"
+  "lastSeen": "2026-05-12T16:35:34.191Z"
 }
