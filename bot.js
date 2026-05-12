@@ -507,7 +507,7 @@ async function handleChat(username, message) {
 
   // Help
   if (msg === '!help') {
-    bot.chat('Commands: !follow !stop !pvp !guard !mine !come !status !hp !inv !attack <name> !remember <fact>');
+    bot.chat('Commands: !follow !stop !pvp !guard !mine !come !sleep !wake !status !hp !inv !attack <name> !remember <fact>');
     return;
   }
 
@@ -562,6 +562,17 @@ async function handleChat(username, message) {
   }
 
   // ── SURVIVAL ──
+  else if (msg === '!sleep' || msg.includes('sleep') || msg.includes('go to bed') || msg.includes('use bed')) {
+    await sleepInBed();
+  }
+  else if (msg === '!wake' || msg.includes('wake up') || msg.includes('get up') || msg.includes('leave bed')) {
+    try {
+      await bot.wake();
+      bot.chat('Woke up!! 😤');
+    } catch (e) {
+      bot.chat("I'm not sleeping bro!");
+    }
+  }
   else if (msg === '!mine' || msg.includes('go mine') || msg.includes('mine some') || msg.includes('find diamonds')) {
     state.mode = 'mine'; state.following = false;
     bot.chat('Mining mode!! 🪨 Finding the best stuff!!');
@@ -740,6 +751,50 @@ function retreatToSafety() {
   const owner = bot.players[CONFIG.ownerName];
   if (owner?.entity) {
     bot.pathfinder.setGoal(new GoalNear(owner.entity.position.x, owner.entity.position.y, owner.entity.position.z, 2));
+  }
+}
+
+// ─────────────────────────────────────────────
+//  SLEEP
+// ─────────────────────────────────────────────
+async function sleepInBed() {
+  const bedBlockNames = [
+    'white_bed','orange_bed','magenta_bed','light_blue_bed','yellow_bed',
+    'lime_bed','pink_bed','gray_bed','light_gray_bed','cyan_bed','purple_bed',
+    'blue_bed','brown_bed','green_bed','red_bed','black_bed',
+  ];
+
+  // Find nearest bed block
+  let bedBlock = null;
+  for (const name of bedBlockNames) {
+    const id = bot.registry.blocksByName[name]?.id;
+    if (!id) continue;
+    const found = bot.findBlock({ matching: id, maxDistance: 32 });
+    if (found) { bedBlock = found; break; }
+  }
+
+  if (!bedBlock) {
+    bot.chat("Can't find a bed nearby bro! 😭");
+    return;
+  }
+
+  bot.chat('Found a bed, going to sleep! 😴');
+  try {
+    // Walk to the bed first
+    await bot.pathfinder.goto(new GoalNear(bedBlock.position.x, bedBlock.position.y, bedBlock.position.z, 2));
+    await bot.sleep(bedBlock);
+    bot.chat('Goodnight!! 😴💤');
+    addEvent('bot_slept');
+  } catch (e) {
+    const msg = e.message || '';
+    if (msg.includes('night') || msg.includes('day')) {
+      bot.chat("Can't sleep right now, it's not night time! 🌞");
+    } else if (msg.includes('monster') || msg.includes('mob')) {
+      bot.chat('Too many monsters nearby to sleep!! 😤');
+    } else {
+      bot.chat(`Couldn't sleep: ${msg}`);
+    }
+    console.log('[sleep] error:', e.message);
   }
 }
 
