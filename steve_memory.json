@@ -5,11 +5,36 @@
   "preferredBiome": "unknown",
   "combatMoves": [],
   "chatStyle": "casual",
-  "recentEvents": [],
+  "recentEvents": [
+    {
+      "time": 1778602866658,
+      "event": "bot_spawned"
+    },
+    {
+      "time": 1778602859573,
+      "event": "bot_spawned"
+    },
+    {
+      "time": 1778602852312,
+      "event": "bot_spawned"
+    },
+    {
+      "time": 1778602845356,
+      "event": "bot_spawned"
+    },
+    {
+      "time": 1778602826966,
+      "event": "bot_spawned"
+    },
+    {
+      "time": 1778602398614,
+      "event": "bot_spawned"
+    }
+  ],
   "sharedMoments": [],
-  "ownerMood": "good",
-  "totalSessions": 9,
+  "ownerMood": "neutral",
+  "totalSessions": 39,
   "knownFacts": [],
   "insideJokes": [],
-  "lastSeen": "2026-05-12T16:10:42.029Z"
+  "lastSeen": "2026-05-12T16:21:02.505Z"
 }

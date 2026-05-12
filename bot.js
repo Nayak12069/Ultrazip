@@ -140,10 +140,13 @@ bot.once('spawn', async () => {
   movements.canDig = false;
   bot.pathfinder.setMovements(movements);
 
-  bot.autoEat.options = {
-    priority: 'foodPoints', startAt: 14,
-    bannedFood: ['rotten_flesh', 'spider_eye', 'poisonous_potato'],
-  };
+  try {
+    bot.autoEat.setOpts({
+      priority: 'foodPoints', startAt: 14,
+      bannedFood: ['rotten_flesh', 'spider_eye', 'poisonous_potato'],
+    });
+    bot.autoEat.enableAuto();
+  } catch (e) { console.log('[autoEat] setup skipped:', e.message); }
 
   // Greet based on memory
   const greeting = await aiThink('greeting', {
@@ -487,11 +490,13 @@ function startHealthMonitor() {
 
 // ─────────────────────────────────────────────
 //  CHAT COMMANDS + AI UNDERSTANDING
+//  Uses messagestr for 1.19+ signed chat support
 // ─────────────────────────────────────────────
-bot.on('chat', async (username, message) => {
-  if (username === bot.username) return;
+async function handleChat(username, message) {
+  if (!username || username === bot.username) return;
   const isOwner = username === CONFIG.ownerName;
   const msg = message.trim().toLowerCase();
+  console.log(`[CHAT] ${username}: ${message} (isOwner: ${isOwner})`);
 
   // Update chat history
   state.chatHistory.push({ role: 'user', name: username, content: message, time: Date.now() });
@@ -600,6 +605,31 @@ bot.on('chat', async (username, message) => {
     // Learn from what they said
     extractFactsFromMessage(message);
   }
+}
+
+// 1.19+ signed chat — primary handler
+bot.on('messagestr', async (message, position, jsonMsg, sender) => {
+  if (position !== 'chat') return;
+  let username = '';
+  if (sender && typeof sender === 'object') {
+    username = sender.name || sender.username || '';
+  } else if (typeof sender === 'string') {
+    // In 1.19+, sender is a UUID — resolve to actual username via player list
+    const playerByUUID = Object.values(bot.players).find(p => p.uuid === sender);
+    if (playerByUUID) username = playerByUUID.username;
+  }
+  // Legacy fallback: parse <username> from message text
+  if (!username) {
+    const m = message.match(/^<([^>]+)>/);
+    if (m) { username = m[1]; message = message.slice(m[0].length).trim(); }
+  }
+  console.log(`[CHAT] resolved: ${username} | msg: ${message}`);
+  if (username) await handleChat(username, message);
+});
+
+// Legacy fallback for older server versions
+bot.on('chat', async (username, message) => {
+  await handleChat(username, message);
 });
 
 // ─────────────────────────────────────────────
@@ -661,7 +691,7 @@ function attackTarget(target) {
   if (!target || !target.isValid) return;
   state.inCombat = true;
   state.currentTarget = target;
-  bot.pvp.attack(target, { reach: CONFIG.attackRange });
+  bot.pvp.attack(target);
 
   // Critical hits
   const critLoop = setInterval(() => {
