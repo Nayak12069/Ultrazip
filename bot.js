@@ -177,19 +177,26 @@ function createBot() {
       bot.autoEat.enableAuto();
     } catch (e) { console.log('[autoEat] setup skipped:', e.message); }
 
-    const greeting = await aiThink('greeting', {
-      sessionCount: memory.totalSessions,
-      knownFacts: memory.knownFacts.slice(0, 5),
-      sharedMoments: memory.sharedMoments.slice(0, 2),
-      ownerPlaystyle: memory.playstyle,
-    });
-    bot.chat(greeting);
     addEvent('bot_spawned');
-
     startAILoop();
     startCombatWatcher();
     startHealthMonitor();
     startLearningLoop();
+
+    // Check if owner is online — if not, start survival mode immediately
+    await new Promise(r => setTimeout(r, 2000));
+    if (isOwnerOnline()) {
+      const greeting = await aiThink('greeting', {
+        sessionCount: memory.totalSessions,
+        knownFacts: memory.knownFacts.slice(0, 5),
+        sharedMoments: memory.sharedMoments.slice(0, 2),
+        ownerPlaystyle: memory.playstyle,
+      });
+      bot.chat(greeting);
+    } else {
+      console.log('[survival] Owner not online at spawn — entering survival mode');
+      startSurvivalMode();
+    }
   });
 
   // ─────────────────────────────────────────────
@@ -672,6 +679,7 @@ function startAILoop() {
   setInterval(() => {
     try {
       if (CONFIG.autoEquipBestGear) equipBestGear();
+      if (state.mode === 'survival') return; // survival loop handles everything
       if (state.following && !state.inCombat) followOwner();
       if (state.mode === 'pvp' && !state.inCombat) {
         const t = findNearestEnemy(24, true);
@@ -746,14 +754,39 @@ function startCombatWatcher() {
     }
   });
 
-  // Detect if owner died by watching player list changes
+  // Owner left — start survival mode
   bot.on('playerLeft', async (player) => {
     if (player.username === CONFIG.ownerName) {
-      const reply = await aiThink('owner_died', { cause: 'unknown' });
-      bot.chat(reply);
-      addEvent('owner_died');
-      memory.ownerMood = 'frustrated';
+      addEvent('owner_left');
+      memory.ownerMood = 'away';
       saveMemory();
+      console.log('[survival] Owner left the server');
+      setTimeout(() => {
+        if (!isOwnerOnline()) startSurvivalMode();
+      }, 3000);
+    }
+  });
+
+  // Owner joined — stop survival and report back
+  bot.on('playerJoined', async (player) => {
+    if (player.username === CONFIG.ownerName) {
+      const wasSurviving = state.mode === 'survival';
+      stopSurvivalMode();
+      addEvent('owner_joined');
+      await new Promise(r => setTimeout(r, 2000)); // let them load in
+      if (wasSurviving) {
+        const report = getSurvivalReport();
+        bot.chat(`Welcome back bro! 🔥 ${report}`);
+      } else {
+        const greeting = await aiThink('greeting', {
+          sessionCount: memory.totalSessions,
+          knownFacts: memory.knownFacts.slice(0, 3),
+          sharedMoments: memory.sharedMoments.slice(0, 1),
+          ownerPlaystyle: memory.playstyle,
+        });
+        bot.chat(greeting);
+      }
+      followOwner();
     }
   });
 }
@@ -1165,6 +1198,234 @@ function lootNearby() {
   );
   if (items.length) {
     bot.pathfinder.setGoal(new GoalNear(items[0].position.x, items[0].position.y, items[0].position.z, 1), true);
+  }
+}
+
+// ─────────────────────────────────────────────
+//  AUTONOMOUS SURVIVAL MODE
+//  Runs when owner is offline — bot survives on its own
+// ─────────────────────────────────────────────
+let survivalInterval = null;
+let survivalBusy = false;
+let survivalLog = [];
+
+function isOwnerOnline() {
+  return !!bot.players[CONFIG.ownerName];
+}
+
+function startSurvivalMode() {
+  if (state.mode === 'survival') return;
+  state.mode = 'survival';
+  state.following = false;
+  state.inCombat = false;
+  bot.pvp.stop();
+  bot.pathfinder.setGoal(null);
+  survivalLog = [];
+  survivalBusy = false;
+  console.log('[survival] Owner offline — autonomous survival mode ON');
+  addEvent('survival_mode_started');
+  if (survivalInterval) clearInterval(survivalInterval);
+  survivalInterval = setInterval(survivalTick, 3500);
+}
+
+function stopSurvivalMode() {
+  if (survivalInterval) { clearInterval(survivalInterval); survivalInterval = null; }
+  survivalBusy = false;
+  state.mode = 'friend';
+  state.following = true;
+  state.inCombat = false;
+  bot.pvp.stop();
+  addEvent('survival_mode_ended');
+  console.log('[survival] Owner online — returning to companion mode');
+}
+
+function survivalLogAdd(entry) {
+  console.log('[survival] ' + entry);
+  survivalLog.push(entry);
+  if (survivalLog.length > 30) survivalLog.shift();
+  addEvent('survival: ' + entry);
+}
+
+function getSurvivalReport() {
+  if (!survivalLog.length) return "Kept watch while you were away — nothing major happened.";
+  const highlights = survivalLog.slice(-6).join(' | ');
+  const wc = getWorldContext();
+  return `While you were away — ${highlights}. Now at ${wc.pos}, HP ${wc.hp}/20, tier: ${wc.tier}.`;
+}
+
+function findFoodInInventory() {
+  const FOOD = [
+    'cooked_beef','steak','cooked_chicken','cooked_porkchop','cooked_mutton',
+    'cooked_salmon','cooked_cod','bread','golden_apple','apple',
+    'carrot','baked_potato','melon_slice','beetroot','mushroom_stew',
+  ];
+  for (const f of FOOD) {
+    const item = bot.inventory.items().find(i => i.name === f);
+    if (item) return item;
+  }
+  return null;
+}
+
+async function survivalTick() {
+  if (survivalBusy || state.inCombat) return;
+  if (isOwnerOnline()) return;  // owner joined — let playerJoined handle it
+  survivalBusy = true;
+  try {
+    const hp    = Math.round(bot.health);
+    const food  = Math.round(bot.food);
+    const tod   = bot.time?.timeOfDay ?? 0;
+    const isNight = tod > 13000 && tod < 23000;
+
+    // ── 1. CRITICAL HP — eat immediately ──
+    if (hp <= 8) {
+      const foodItem = findFoodInInventory();
+      if (foodItem) {
+        try {
+          await bot.equip(foodItem, 'hand');
+          bot.activateItem();
+          await new Promise(r => setTimeout(r, 1600));
+          bot.deactivateItem();
+        } catch (e) {}
+      }
+      survivalBusy = false;
+      return;
+    }
+
+    // ── 2. KILL NEARBY HOSTILE MOBS (proactive self-defense) ──
+    const threat = findNearestEnemy(10, false);
+    if (threat) {
+      survivalLogAdd(`Fought off ${threat.name || 'mob'}`);
+      attackTarget(threat);
+      await new Promise(r => setTimeout(r, 3000));
+      survivalBusy = false;
+      return;
+    }
+
+    // ── 3. HUNGRY — hunt animals ──
+    if (food < 10) {
+      const hunted = await survivalHuntFood();
+      if (hunted) { survivalBusy = false; return; }
+    }
+
+    // ── 4. NIGHT — find and sleep in bed ──
+    if (isNight && hp > 10) {
+      await survivalSleep();
+      survivalBusy = false;
+      return;
+    }
+
+    // ── 5. NO TOOLS — chop wood first ──
+    const inv = bot.inventory.items().map(i => i.name);
+    const hasPickaxe = inv.some(i => i.includes('pickaxe'));
+    const hasSword   = inv.some(i => i.includes('sword') || i.includes('_axe'));
+    if (!hasPickaxe || !hasSword) {
+      await survivalChopWood();
+      survivalBusy = false;
+      return;
+    }
+
+    // ── 6. MINE ORES ──
+    await survivalMineOre();
+
+  } catch (e) {
+    console.log('[survival] tick error:', e.message);
+  }
+  survivalBusy = false;
+}
+
+async function survivalHuntFood() {
+  const FOOD_MOBS = ['cow','sheep','pig','chicken','rabbit'];
+  for (const entity of Object.values(bot.entities)) {
+    if (!FOOD_MOBS.includes(entity.name)) continue;
+    const dist = bot.entity.position.distanceTo(entity.position);
+    if (dist > 20) continue;
+    survivalLogAdd(`Hunted ${entity.name} for food`);
+    attackTarget(entity);
+    await new Promise(r => setTimeout(r, 2500));
+    lootNearby();
+    return true;
+  }
+  return false;
+}
+
+async function survivalSleep() {
+  const BED_NAMES = [
+    'white_bed','orange_bed','magenta_bed','light_blue_bed','yellow_bed',
+    'lime_bed','pink_bed','gray_bed','light_gray_bed','cyan_bed','purple_bed',
+    'blue_bed','brown_bed','green_bed','red_bed','black_bed',
+  ];
+  for (const name of BED_NAMES) {
+    const id = bot.registry.blocksByName[name]?.id;
+    if (!id) continue;
+    const bed = bot.findBlock({ matching: id, maxDistance: 32 });
+    if (bed) {
+      try {
+        await bot.pathfinder.goto(new GoalNear(bed.position.x, bed.position.y, bed.position.z, 2));
+        await bot.sleep(bed);
+        survivalLogAdd('Slept through the night');
+        return;
+      } catch (e) {}
+    }
+  }
+}
+
+async function survivalChopWood() {
+  const WOODS = [
+    'oak_log','birch_log','spruce_log','jungle_log',
+    'acacia_log','dark_oak_log','mangrove_log','cherry_log',
+  ];
+  for (const wood of WOODS) {
+    const id = bot.registry.blocksByName[wood]?.id;
+    if (!id) continue;
+    const block = bot.findBlock({ matching: id, maxDistance: 32 });
+    if (block) {
+      try {
+        const digMov = new Movements(bot);
+        digMov.canDig = true;
+        bot.pathfinder.setMovements(digMov);
+        await bot.pathfinder.goto(new GoalBlock(block.position.x, block.position.y, block.position.z));
+        if (bot.canDigBlock(block)) {
+          await bot.dig(block);
+          survivalLogAdd(`Chopped ${wood}`);
+        }
+        bot.pathfinder.setMovements(bot._defaultMovements);
+        lootNearby();
+        return;
+      } catch (e) {
+        bot.pathfinder.setMovements(bot._defaultMovements);
+      }
+    }
+  }
+}
+
+async function survivalMineOre() {
+  const ORES = [
+    'diamond_ore','deepslate_diamond_ore',
+    'iron_ore','deepslate_iron_ore',
+    'coal_ore','deepslate_coal_ore',
+    'gold_ore','deepslate_gold_ore',
+  ];
+  for (const oreName of ORES) {
+    const id = bot.registry.blocksByName[oreName]?.id;
+    if (!id) continue;
+    const block = bot.findBlock({ matching: id, maxDistance: 40 });
+    if (block) {
+      try {
+        const digMov = new Movements(bot);
+        digMov.canDig = true;
+        bot.pathfinder.setMovements(digMov);
+        await bot.pathfinder.goto(new GoalBlock(block.position.x, block.position.y, block.position.z));
+        if (bot.canDigBlock(block)) {
+          await bot.dig(block);
+          survivalLogAdd(`Mined ${oreName}`);
+        }
+        bot.pathfinder.setMovements(bot._defaultMovements);
+        lootNearby();
+        return;
+      } catch (e) {
+        bot.pathfinder.setMovements(bot._defaultMovements);
+      }
+    }
   }
 }
 

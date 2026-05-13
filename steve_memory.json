@@ -7,6 +7,14 @@
   "chatStyle": "casual",
   "recentEvents": [
     {
+      "time": 1778646824049,
+      "event": "survival_mode_started"
+    },
+    {
+      "time": 1778646822048,
+      "event": "bot_spawned"
+    },
+    {
       "time": 1778645612127,
       "event": "bot_spawned"
     },
@@ -117,20 +125,12 @@
     {
       "time": 1778644836386,
       "event": "bot_spawned"
-    },
-    {
-      "time": 1778644818997,
-      "event": "bot_spawned"
-    },
-    {
-      "time": 1778644802157,
-      "event": "bot_spawned"
     }
   ],
   "sharedMoments": [],
   "ownerMood": "frustrated",
-  "totalSessions": 139,
+  "totalSessions": 140,
   "knownFacts": [],
   "insideJokes": [],
-  "lastSeen": "2026-05-13T04:13:30.191Z"
+  "lastSeen": "2026-05-13T04:33:40.388Z"
 }
