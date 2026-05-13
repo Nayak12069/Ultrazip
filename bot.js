@@ -55,7 +55,7 @@ const CONFIG = {
 
   // Claude AI API key — get free at console.anthropic.com
   // Bot works without it but AI brain won't think/respond smart
-  claudeApiKey: process.env.CLAUDE_API_KEY || 'YOUR_CLAUDE_API_KEY_HERE',
+  claudeApiKey: process.env.CLAUDE_API_KEY || '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',
 
   // Behavior
   autoDefend:        true,
