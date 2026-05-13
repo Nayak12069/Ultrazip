@@ -7,114 +7,130 @@
   "chatStyle": "casual",
   "recentEvents": [
     {
-      "time": 1778644163391,
+      "time": 1778645280952,
       "event": "bot_spawned"
     },
     {
-      "time": 1778644159096,
+      "time": 1778645251934,
       "event": "bot_spawned"
     },
     {
-      "time": 1778644155765,
+      "time": 1778645222547,
       "event": "bot_spawned"
     },
     {
-      "time": 1778644151897,
+      "time": 1778645193139,
       "event": "bot_spawned"
     },
     {
-      "time": 1778644148749,
+      "time": 1778645163735,
       "event": "bot_spawned"
     },
     {
-      "time": 1778644134891,
+      "time": 1778645141158,
       "event": "bot_spawned"
     },
     {
-      "time": 1778644125657,
+      "time": 1778645125884,
       "event": "bot_spawned"
     },
     {
-      "time": 1778644122690,
+      "time": 1778645108587,
       "event": "bot_spawned"
     },
     {
-      "time": 1778644118930,
+      "time": 1778645091125,
       "event": "bot_spawned"
     },
     {
-      "time": 1778644113676,
+      "time": 1778645072686,
       "event": "bot_spawned"
     },
     {
-      "time": 1778644106029,
+      "time": 1778645055431,
       "event": "bot_spawned"
     },
     {
-      "time": 1778644099892,
+      "time": 1778645038103,
       "event": "bot_spawned"
     },
     {
-      "time": 1778644093799,
+      "time": 1778645020457,
       "event": "bot_spawned"
     },
     {
-      "time": 1778644081820,
+      "time": 1778645003115,
       "event": "bot_spawned"
     },
     {
-      "time": 1778603867220,
-      "event": "owner_died"
-    },
-    {
-      "time": 1778603736358,
+      "time": 1778644985677,
       "event": "bot_spawned"
     },
     {
-      "time": 1778603621405,
-      "event": "bot_slept"
-    },
-    {
-      "time": 1778603271841,
-      "event": "mine_mode_started"
-    },
-    {
-      "time": 1778603220527,
+      "time": 1778644969538,
       "event": "bot_spawned"
     },
     {
-      "time": 1778603042085,
+      "time": 1778644950858,
       "event": "bot_spawned"
     },
     {
-      "time": 1778602866658,
+      "time": 1778644932794,
       "event": "bot_spawned"
     },
     {
-      "time": 1778602859573,
+      "time": 1778644914690,
       "event": "bot_spawned"
     },
     {
-      "time": 1778602852312,
+      "time": 1778644898218,
       "event": "bot_spawned"
     },
     {
-      "time": 1778602845356,
+      "time": 1778644871167,
       "event": "bot_spawned"
     },
     {
-      "time": 1778602826966,
+      "time": 1778644853754,
       "event": "bot_spawned"
     },
     {
-      "time": 1778602398614,
+      "time": 1778644836386,
+      "event": "bot_spawned"
+    },
+    {
+      "time": 1778644818997,
+      "event": "bot_spawned"
+    },
+    {
+      "time": 1778644802157,
+      "event": "bot_spawned"
+    },
+    {
+      "time": 1778644784133,
+      "event": "bot_spawned"
+    },
+    {
+      "time": 1778644767756,
+      "event": "bot_spawned"
+    },
+    {
+      "time": 1778644749358,
+      "event": "bot_spawned"
+    },
+    {
+      "time": 1778644732754,
+      "event": "bot_spawned"
+    },
+    {
+      "time": 1778644714567,
       "event": "bot_spawned"
     }
   ],
   "sharedMoments": [],
   "ownerMood": "frustrated",
-  "totalSessions": 165,
+  "totalSessions": 137,
   "knownFacts": [],
   "insideJokes": [],
-  "lastSeen": "2026-05-13T03:49:20.486Z"
+  "lastSeen": "2026-05-13T04:05:38.962Z"
 }

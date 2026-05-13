@@ -201,8 +201,11 @@ function createBot() {
   //  ERROR / DISCONNECT
   // ─────────────────────────────────────────────
   bot.on('kicked', (r) => {
-    console.log('[Steve_AI] Kicked:', JSON.stringify(r));
-    scheduleReconnect();
+    const reason = JSON.stringify(r);
+    console.log('[Steve_AI] Kicked:', reason);
+    // Duplicate login = another Nayak_Guard is online — wait longer before retrying
+    const isDuplicate = reason.includes('duplicate_login');
+    scheduleReconnect(isDuplicate ? 60000 : 20000);
   });
   bot.on('error', (e) => {
     console.error('[Steve_AI] Error:', e.message);
@@ -213,15 +216,14 @@ function createBot() {
   });
 }
 
-function scheduleReconnect() {
+function scheduleReconnect(delay = 20000) {
   if (reconnecting) return;
   reconnecting = true;
-  console.log('[Steve_AI] Reconnecting in 8s...');
-  // Reset state so old loops don't carry over
   state.inCombat = false;
   state.mining = false;
   state.currentTarget = null;
-  setTimeout(createBot, 8000);
+  console.log(`[Steve_AI] Reconnecting in ${delay / 1000}s...`);
+  setTimeout(createBot, delay);
 }
 
 // ─────────────────────────────────────────────
