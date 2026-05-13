@@ -1233,7 +1233,7 @@ function startSurvivalMode() {
   console.log('[survival] Owner offline — autonomous survival mode ON');
   addEvent('survival_mode_started');
   if (survivalInterval) clearInterval(survivalInterval);
-  survivalInterval = setInterval(survivalTick, 3500);
+  survivalInterval = setInterval(survivalTick, 2000);
 }
 
 function stopSurvivalMode() {
@@ -1274,66 +1274,232 @@ function findFoodInInventory() {
   return null;
 }
 
+// ── INVENTORY HELPERS ──
+function invCount(name) {
+  return bot.inventory.items().filter(i => i.name === name).reduce((s, i) => s + i.count, 0);
+}
+function invHas(name) { return invCount(name) > 0; }
+function invHasAny(...names) { return names.some(n => bot.inventory.items().some(i => i.name.includes(n))); }
+function invNames() { return bot.inventory.items().map(i => i.name); }
+function findNearbyBlock(name, dist = 32) {
+  const id = bot.registry.blocksByName[name]?.id;
+  return id ? bot.findBlock({ matching: id, maxDistance: dist }) : null;
+}
+
+// ── CRAFTING ENGINE ──
+async function tryCraft(itemName, count = 1) {
+  try {
+    const itemId = bot.registry.itemsByName[itemName]?.id;
+    if (!itemId) return false;
+    const table = findNearbyBlock('crafting_table', 32);
+    let recipes = bot.recipesFor(itemId, null, 1, table);
+    if (!recipes.length) recipes = bot.recipesFor(itemId, null, 1, null);
+    if (!recipes.length) return false;
+    if (table) {
+      await bot.pathfinder.goto(new GoalNear(table.position.x, table.position.y, table.position.z, 2));
+      await bot.craft(recipes[0], count, table);
+    } else {
+      await bot.craft(recipes[0], count, null);
+    }
+    survivalLogAdd(`Crafted ${count}x ${itemName}`);
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+// ── FULL CRAFTING PROGRESSION ──
+async function survivalAutoCraft() {
+  const LOG_TYPES  = ['oak_log','birch_log','spruce_log','jungle_log','acacia_log','dark_oak_log','mangrove_log','cherry_log'];
+  const PLANK_MAP  = { oak_log:'oak_planks', birch_log:'birch_planks', spruce_log:'spruce_planks', jungle_log:'jungle_planks', acacia_log:'acacia_planks', dark_oak_log:'dark_oak_planks', mangrove_log:'mangrove_planks', cherry_log:'cherry_planks' };
+
+  // LOGS → PLANKS (always do this first, 4 planks per log)
+  for (const log of LOG_TYPES) {
+    const n = invCount(log);
+    if (n > 0) await tryCraft(PLANK_MAP[log], n);
+  }
+
+  const planks = () => ['oak_planks','birch_planks','spruce_planks','jungle_planks','acacia_planks','dark_oak_planks','mangrove_planks','cherry_planks'].reduce((s,n)=>s+invCount(n),0);
+  const sticks = () => invCount('stick');
+
+  // PLANKS → STICKS
+  if (planks() >= 2 && sticks() < 16) await tryCraft('stick', Math.min(4, Math.floor(planks() / 2)));
+
+  // PLANKS → CRAFTING TABLE (no table needed, 2x2)
+  if (planks() >= 4 && !findNearbyBlock('crafting_table') && !invHas('crafting_table'))
+    await tryCraft('crafting_table', 1);
+
+  // Place crafting table from inventory
+  if (invHas('crafting_table') && !findNearbyBlock('crafting_table')) {
+    try {
+      const item = bot.inventory.items().find(i => i.name === 'crafting_table');
+      await bot.equip(item, 'hand');
+      const ref = bot.blockAt(bot.entity.position.offset(1, -1, 0));
+      if (ref && ref.name !== 'air') await bot.placeBlock(ref, require('vec3')(0, 1, 0));
+    } catch (e) {}
+  }
+
+  const table = findNearbyBlock('crafting_table', 32);
+  const p = planks(), s = sticks();
+
+  // WOODEN TOOLS (only if no better)
+  if (!invHasAny('pickaxe') && p >= 3 && s >= 2) await tryCraft('wooden_pickaxe');
+  if (!invHasAny('sword','_axe') && p >= 2 && s >= 1) await tryCraft('wooden_sword');
+
+  // STONE TOOLS (upgrade from wood)
+  const cobble = invCount('cobblestone');
+  if (cobble >= 3 && s >= 2 && table) {
+    if (!invHasAny('stone_pickaxe','iron_pickaxe','diamond_pickaxe','netherite_pickaxe')) await tryCraft('stone_pickaxe');
+    if (!invHasAny('stone_sword','iron_sword','diamond_sword','netherite_sword')) await tryCraft('stone_sword');
+    if (cobble >= 8 && !findNearbyBlock('furnace') && !invHas('furnace')) await tryCraft('furnace');
+  }
+
+  // Place furnace from inventory
+  if (invHas('furnace') && !findNearbyBlock('furnace')) {
+    try {
+      const item = bot.inventory.items().find(i => i.name === 'furnace');
+      await bot.equip(item, 'hand');
+      const ref = bot.blockAt(bot.entity.position.offset(2, -1, 0));
+      if (ref && ref.name !== 'air') await bot.placeBlock(ref, require('vec3')(0, 1, 0));
+    } catch (e) {}
+  }
+
+  // SMELT RAW ORES → ingots
+  await survivalSmelt();
+
+  const iron = invCount('iron_ingot');
+  // IRON TOOLS & ARMOR
+  if (iron >= 3 && s >= 2 && table) {
+    if (!invHasAny('iron_pickaxe','diamond_pickaxe','netherite_pickaxe')) await tryCraft('iron_pickaxe');
+    if (!invHasAny('iron_sword','diamond_sword','netherite_sword'))       await tryCraft('iron_sword');
+    if (iron >= 5  && !invHasAny('iron_helmet'))     await tryCraft('iron_helmet');
+    if (iron >= 8  && !invHasAny('iron_chestplate')) await tryCraft('iron_chestplate');
+    if (iron >= 7  && !invHasAny('iron_leggings'))   await tryCraft('iron_leggings');
+    if (iron >= 4  && !invHasAny('iron_boots'))      await tryCraft('iron_boots');
+    if (iron >= 6  && !invHasAny('iron_axe'))        await tryCraft('iron_axe');
+    if (iron >= 1  && !invHas('bucket'))             await tryCraft('bucket');
+    if (iron >= 3  && !invHas('shield'))             await tryCraft('shield');
+  }
+
+  // TORCHES from coal + sticks
+  const coal = invCount('coal') + invCount('charcoal');
+  if (coal > 0 && s >= 1) await tryCraft('torch', coal);
+
+  // DIAMOND TOOLS & ARMOR
+  const dia = invCount('diamond');
+  if (dia >= 2 && s >= 2 && table) {
+    if (!invHasAny('diamond_sword'))      await tryCraft('diamond_sword');
+    if (dia >= 3 && !invHasAny('diamond_pickaxe'))    await tryCraft('diamond_pickaxe');
+    if (dia >= 5 && !invHasAny('diamond_helmet'))     await tryCraft('diamond_helmet');
+    if (dia >= 8 && !invHasAny('diamond_chestplate')) await tryCraft('diamond_chestplate');
+    if (dia >= 7 && !invHasAny('diamond_leggings'))   await tryCraft('diamond_leggings');
+    if (dia >= 4 && !invHasAny('diamond_boots'))      await tryCraft('diamond_boots');
+  }
+}
+
+// ── SMELTING ENGINE ──
+async function survivalSmelt() {
+  const furnaceBlock = findNearbyBlock('furnace', 8);
+  if (!furnaceBlock) return;
+
+  const RAW_MAP = {
+    'raw_iron': 'iron_ingot', 'iron_ore': 'iron_ingot', 'deepslate_iron_ore': 'iron_ingot',
+    'raw_gold': 'gold_ingot', 'gold_ore': 'gold_ingot', 'deepslate_gold_ore': 'gold_ingot',
+    'raw_copper': 'copper_ingot',
+    'coal_ore': 'coal', 'deepslate_coal_ore': 'coal',
+  };
+  const FUELS = ['coal','charcoal','oak_planks','birch_planks','spruce_planks','coal_ore'];
+
+  try {
+    await bot.pathfinder.goto(new GoalNear(furnaceBlock.position.x, furnaceBlock.position.y, furnaceBlock.position.z, 2));
+    const furnace = await bot.openFurnace(furnaceBlock);
+
+    // Check what raw ores we have
+    for (const [raw, output] of Object.entries(RAW_MAP)) {
+      const rawItem = bot.inventory.items().find(i => i.name === raw);
+      if (!rawItem) continue;
+
+      // Find fuel
+      const fuelItem = bot.inventory.items().find(i => FUELS.includes(i.name));
+      if (!fuelItem) break;
+
+      await furnace.putFuel(fuelItem.type, null, Math.min(fuelItem.count, 8));
+      await furnace.putInput(rawItem.type, null, Math.min(rawItem.count, 8));
+      await new Promise(r => setTimeout(r, 10000)); // wait 10s for smelting
+      await furnace.takeOutput();
+      survivalLogAdd(`Smelted ${raw} → ${output}`);
+      break;
+    }
+    furnace.close();
+  } catch (e) {
+    console.log('[smelt] error:', e.message);
+  }
+}
+
+// ── MAIN SURVIVAL TICK ──
 async function survivalTick() {
   if (survivalBusy || state.inCombat) return;
-  if (isOwnerOnline()) return;  // owner joined — let playerJoined handle it
+  if (isOwnerOnline()) return;
   survivalBusy = true;
   try {
-    const hp    = Math.round(bot.health);
-    const food  = Math.round(bot.food);
-    const tod   = bot.time?.timeOfDay ?? 0;
+    const hp     = Math.round(bot.health);
+    const food   = Math.round(bot.food);
+    const tod    = bot.time?.timeOfDay ?? 0;
     const isNight = tod > 13000 && tod < 23000;
 
-    // ── 1. CRITICAL HP — eat immediately ──
+    // 1. CRITICAL HP — eat right now
     if (hp <= 8) {
-      const foodItem = findFoodInInventory();
-      if (foodItem) {
-        try {
-          await bot.equip(foodItem, 'hand');
-          bot.activateItem();
-          await new Promise(r => setTimeout(r, 1600));
-          bot.deactivateItem();
-        } catch (e) {}
+      const f = findFoodInInventory();
+      if (f) {
+        try { await bot.equip(f,'hand'); bot.activateItem(); await new Promise(r=>setTimeout(r,1600)); bot.deactivateItem(); }
+        catch(e) {}
       }
-      survivalBusy = false;
-      return;
+      survivalBusy = false; return;
     }
 
-    // ── 2. KILL NEARBY HOSTILE MOBS (proactive self-defense) ──
+    // 2. FIGHT NEARBY THREATS (within 10 blocks)
     const threat = findNearestEnemy(10, false);
     if (threat) {
-      survivalLogAdd(`Fought off ${threat.name || 'mob'}`);
+      survivalLogAdd(`Fought ${threat.name || 'mob'}`);
       attackTarget(threat);
-      await new Promise(r => setTimeout(r, 3000));
-      survivalBusy = false;
-      return;
+      await new Promise(r => setTimeout(r, 2500));
+      lootNearby();
+      survivalBusy = false; return;
     }
 
-    // ── 3. HUNGRY — hunt animals ──
-    if (food < 10) {
+    // 3. CRAFT (always try — it's fast and very important for progression)
+    await survivalAutoCraft();
+
+    // 4. HUNGRY — hunt animals
+    if (food < 12) {
       const hunted = await survivalHuntFood();
       if (hunted) { survivalBusy = false; return; }
     }
 
-    // ── 4. NIGHT — find and sleep in bed ──
+    // 5. NIGHT — sleep
     if (isNight && hp > 10) {
       await survivalSleep();
-      survivalBusy = false;
-      return;
+      survivalBusy = false; return;
     }
 
-    // ── 5. NO TOOLS — chop wood first ──
-    const inv = bot.inventory.items().map(i => i.name);
-    const hasPickaxe = inv.some(i => i.includes('pickaxe'));
-    const hasSword   = inv.some(i => i.includes('sword') || i.includes('_axe'));
+    // 6. NEED WOOD — chop trees
+    const hasPickaxe = invHasAny('pickaxe');
+    const hasSword   = invHasAny('sword','_axe');
     if (!hasPickaxe || !hasSword) {
       await survivalChopWood();
-      survivalBusy = false;
-      return;
+      survivalBusy = false; return;
     }
 
-    // ── 6. MINE ORES ──
-    await survivalMineOre();
+    // 7. GO UNDERGROUND if at surface and have tools
+    const yLevel = Math.round(bot.entity.position.y);
+    const hasStonePick = invHasAny('stone_pickaxe','iron_pickaxe','diamond_pickaxe','netherite_pickaxe');
+    if (yLevel > 20 && hasStonePick) {
+      await survivalGoUnderground();
+      survivalBusy = false; return;
+    }
+
+    // 8. MINE ORES
+    await survivalMineOres();
 
   } catch (e) {
     console.log('[survival] tick error:', e.message);
@@ -1342,14 +1508,13 @@ async function survivalTick() {
 }
 
 async function survivalHuntFood() {
-  const FOOD_MOBS = ['cow','sheep','pig','chicken','rabbit'];
+  const FOOD_MOBS = ['cow','sheep','pig','chicken','rabbit','salmon','cod'];
   for (const entity of Object.values(bot.entities)) {
     if (!FOOD_MOBS.includes(entity.name)) continue;
-    const dist = bot.entity.position.distanceTo(entity.position);
-    if (dist > 20) continue;
-    survivalLogAdd(`Hunted ${entity.name} for food`);
+    if (bot.entity.position.distanceTo(entity.position) > 24) continue;
+    survivalLogAdd(`Hunted ${entity.name}`);
     attackTarget(entity);
-    await new Promise(r => setTimeout(r, 2500));
+    await new Promise(r => setTimeout(r, 2000));
     lootNearby();
     return true;
   }
@@ -1357,15 +1522,11 @@ async function survivalHuntFood() {
 }
 
 async function survivalSleep() {
-  const BED_NAMES = [
-    'white_bed','orange_bed','magenta_bed','light_blue_bed','yellow_bed',
+  const BED_NAMES = ['white_bed','orange_bed','magenta_bed','light_blue_bed','yellow_bed',
     'lime_bed','pink_bed','gray_bed','light_gray_bed','cyan_bed','purple_bed',
-    'blue_bed','brown_bed','green_bed','red_bed','black_bed',
-  ];
+    'blue_bed','brown_bed','green_bed','red_bed','black_bed'];
   for (const name of BED_NAMES) {
-    const id = bot.registry.blocksByName[name]?.id;
-    if (!id) continue;
-    const bed = bot.findBlock({ matching: id, maxDistance: 32 });
+    const bed = findNearbyBlock(name, 48);
     if (bed) {
       try {
         await bot.pathfinder.goto(new GoalNear(bed.position.x, bed.position.y, bed.position.z, 2));
@@ -1378,61 +1539,84 @@ async function survivalSleep() {
 }
 
 async function survivalChopWood() {
-  const WOODS = [
-    'oak_log','birch_log','spruce_log','jungle_log',
-    'acacia_log','dark_oak_log','mangrove_log','cherry_log',
-  ];
+  const WOODS = ['oak_log','birch_log','spruce_log','jungle_log','acacia_log','dark_oak_log','mangrove_log','cherry_log'];
   for (const wood of WOODS) {
-    const id = bot.registry.blocksByName[wood]?.id;
-    if (!id) continue;
-    const block = bot.findBlock({ matching: id, maxDistance: 32 });
+    const block = findNearbyBlock(wood, 48);
     if (block) {
       try {
-        const digMov = new Movements(bot);
-        digMov.canDig = true;
-        bot.pathfinder.setMovements(digMov);
+        const m = new Movements(bot); m.canDig = true; bot.pathfinder.setMovements(m);
         await bot.pathfinder.goto(new GoalBlock(block.position.x, block.position.y, block.position.z));
-        if (bot.canDigBlock(block)) {
-          await bot.dig(block);
-          survivalLogAdd(`Chopped ${wood}`);
-        }
+        if (bot.canDigBlock(block)) { await bot.dig(block); survivalLogAdd(`Chopped ${wood}`); }
         bot.pathfinder.setMovements(bot._defaultMovements);
         lootNearby();
         return;
-      } catch (e) {
-        bot.pathfinder.setMovements(bot._defaultMovements);
-      }
+      } catch (e) { bot.pathfinder.setMovements(bot._defaultMovements); }
     }
   }
 }
 
-async function survivalMineOre() {
+// Dig staircase down to good mining level (Y=11 for diamonds, Y=16 for iron)
+async function survivalGoUnderground() {
+  const targetY = invHasAny('iron_pickaxe','diamond_pickaxe','netherite_pickaxe') ? 11 : 16;
+  const currentY = Math.round(bot.entity.position.y);
+  if (currentY <= targetY) return;
+  try {
+    const m = new Movements(bot); m.canDig = true; bot.pathfinder.setMovements(m);
+    // Just walk into a hillside or dig straight down in staircase pattern
+    const pos = bot.entity.position;
+    // Find stone/dirt nearby to dig into
+    const stone = findNearbyBlock('stone', 8) || findNearbyBlock('dirt', 8) || findNearbyBlock('grass_block', 8);
+    if (stone) {
+      await bot.pathfinder.goto(new GoalBlock(stone.position.x, stone.position.y, stone.position.z));
+      if (bot.canDigBlock(stone)) await bot.dig(stone);
+    } else {
+      // Dig one block down (staircase: dig floor in front and drop)
+      const below = bot.blockAt(pos.offset(0, -2, 0));
+      if (below && bot.canDigBlock(below)) {
+        await bot.dig(below);
+        survivalLogAdd(`Digging down to Y=${targetY} (currently Y=${currentY})`);
+      }
+    }
+    bot.pathfinder.setMovements(bot._defaultMovements);
+  } catch (e) { bot.pathfinder.setMovements(bot._defaultMovements); }
+}
+
+async function survivalMineOres() {
+  // Priority: diamonds first, then iron, coal, gold
   const ORES = [
     'diamond_ore','deepslate_diamond_ore',
     'iron_ore','deepslate_iron_ore',
-    'coal_ore','deepslate_coal_ore',
+    'raw_iron', // exposed raw iron blocks
     'gold_ore','deepslate_gold_ore',
+    'coal_ore','deepslate_coal_ore',
+    'lapis_ore','deepslate_lapis_ore',
+    'redstone_ore','deepslate_redstone_ore',
+    'emerald_ore','deepslate_emerald_ore',
+    'copper_ore','deepslate_copper_ore',
   ];
   for (const oreName of ORES) {
-    const id = bot.registry.blocksByName[oreName]?.id;
-    if (!id) continue;
-    const block = bot.findBlock({ matching: id, maxDistance: 40 });
+    const block = findNearbyBlock(oreName, 64);
     if (block) {
       try {
-        const digMov = new Movements(bot);
-        digMov.canDig = true;
-        bot.pathfinder.setMovements(digMov);
+        const m = new Movements(bot); m.canDig = true; bot.pathfinder.setMovements(m);
         await bot.pathfinder.goto(new GoalBlock(block.position.x, block.position.y, block.position.z));
         if (bot.canDigBlock(block)) {
           await bot.dig(block);
           survivalLogAdd(`Mined ${oreName}`);
+          // Also mine adjacent ores (ore clusters)
+          for (const adj of [[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]]) {
+            const adjBlock = bot.blockAt(block.position.offset(...adj));
+            if (adjBlock && ORES.includes(adjBlock.name) && bot.canDigBlock(adjBlock)) {
+              await bot.pathfinder.goto(new GoalBlock(adjBlock.position.x, adjBlock.position.y, adjBlock.position.z));
+              await bot.dig(adjBlock);
+              survivalLogAdd(`Mined adjacent ${adjBlock.name}`);
+            }
+          }
         }
         bot.pathfinder.setMovements(bot._defaultMovements);
         lootNearby();
         return;
-      } catch (e) {
-        bot.pathfinder.setMovements(bot._defaultMovements);
-      }
+      } catch (e) { bot.pathfinder.setMovements(bot._defaultMovements); }
     }
   }
 }

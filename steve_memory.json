@@ -7,130 +7,130 @@
   "chatStyle": "casual",
   "recentEvents": [
     {
-      "time": 1778647004151,
+      "time": 1778648585518,
+      "event": "survival: Crafted 1x wooden_sword"
+    },
+    {
+      "time": 1778648584868,
+      "event": "survival: Crafted 1x wooden_pickaxe"
+    },
+    {
+      "time": 1778648583919,
+      "event": "survival: Crafted 4x stick"
+    },
+    {
+      "time": 1778648583068,
+      "event": "survival: Crafted 2x spruce_planks"
+    },
+    {
+      "time": 1778648582574,
+      "event": "survival: Crafted 17x birch_planks"
+    },
+    {
+      "time": 1778648581769,
+      "event": "survival: Crafted 11x oak_planks"
+    },
+    {
+      "time": 1778648573346,
       "event": "survival_mode_started"
     },
     {
-      "time": 1778647002150,
+      "time": 1778648571345,
       "event": "bot_spawned"
     },
     {
-      "time": 1778646824049,
-      "event": "survival_mode_started"
+      "time": 1778648485995,
+      "event": "survival: Chopped birch_log"
     },
     {
-      "time": 1778646822048,
-      "event": "bot_spawned"
+      "time": 1778648451321,
+      "event": "survival: Slept through the night"
     },
     {
-      "time": 1778645612127,
-      "event": "bot_spawned"
+      "time": 1778648221120,
+      "event": "survival: Chopped birch_log"
     },
     {
-      "time": 1778645535115,
-      "event": "bot_spawned"
+      "time": 1778648208296,
+      "event": "survival: Chopped birch_log"
     },
     {
-      "time": 1778645477452,
-      "event": "bot_spawned"
+      "time": 1778648092158,
+      "event": "survival: Chopped spruce_log"
     },
     {
-      "time": 1778645443759,
-      "event": "bot_spawned"
+      "time": 1778648065870,
+      "event": "survival: Chopped birch_log"
     },
     {
-      "time": 1778645362351,
-      "event": "bot_spawned"
+      "time": 1778648022374,
+      "event": "survival: Chopped birch_log"
     },
     {
-      "time": 1778645280952,
-      "event": "bot_spawned"
+      "time": 1778648005011,
+      "event": "survival: Chopped birch_log"
     },
     {
-      "time": 1778645251934,
-      "event": "bot_spawned"
+      "time": 1778647980391,
+      "event": "survival: Chopped birch_log"
     },
     {
-      "time": 1778645222547,
-      "event": "bot_spawned"
+      "time": 1778647962270,
+      "event": "survival: Chopped birch_log"
     },
     {
-      "time": 1778645193139,
-      "event": "bot_spawned"
+      "time": 1778647951321,
+      "event": "survival: Chopped birch_log"
     },
     {
-      "time": 1778645163735,
-      "event": "bot_spawned"
+      "time": 1778647937371,
+      "event": "survival: Chopped oak_log"
     },
     {
-      "time": 1778645141158,
-      "event": "bot_spawned"
+      "time": 1778647933822,
+      "event": "survival: Chopped oak_log"
     },
     {
-      "time": 1778645125884,
-      "event": "bot_spawned"
+      "time": 1778647930321,
+      "event": "survival: Chopped oak_log"
     },
     {
-      "time": 1778645108587,
-      "event": "bot_spawned"
+      "time": 1778647926870,
+      "event": "survival: Chopped oak_log"
     },
     {
-      "time": 1778645091125,
-      "event": "bot_spawned"
+      "time": 1778647921788,
+      "event": "survival: Chopped oak_log"
     },
     {
-      "time": 1778645072686,
-      "event": "bot_spawned"
+      "time": 1778647897326,
+      "event": "survival: Chopped birch_log"
     },
     {
-      "time": 1778645055431,
-      "event": "bot_spawned"
+      "time": 1778647869937,
+      "event": "survival: Chopped birch_log"
     },
     {
-      "time": 1778645038103,
-      "event": "bot_spawned"
+      "time": 1778647839110,
+      "event": "survival: Chopped oak_log"
     },
     {
-      "time": 1778645020457,
-      "event": "bot_spawned"
+      "time": 1778647835646,
+      "event": "survival: Chopped oak_log"
     },
     {
-      "time": 1778645003115,
-      "event": "bot_spawned"
+      "time": 1778647832269,
+      "event": "survival: Chopped oak_log"
     },
     {
-      "time": 1778644985677,
-      "event": "bot_spawned"
-    },
-    {
-      "time": 1778644969538,
-      "event": "bot_spawned"
-    },
-    {
-      "time": 1778644950858,
-      "event": "bot_spawned"
-    },
-    {
-      "time": 1778644932794,
-      "event": "bot_spawned"
-    },
-    {
-      "time": 1778644914690,
-      "event": "bot_spawned"
-    },
-    {
-      "time": 1778644898218,
-      "event": "bot_spawned"
-    },
-    {
-      "time": 1778644871167,
-      "event": "bot_spawned"
+      "time": 1778647825876,
+      "event": "survival: Chopped oak_log"
     }
   ],
   "sharedMoments": [],
   "ownerMood": "frustrated",
-  "totalSessions": 141,
+  "totalSessions": 142,
   "knownFacts": [],
   "insideJokes": [],
-  "lastSeen": "2026-05-13T04:36:40.591Z"
+  "lastSeen": "2026-05-13T05:02:48.980Z"
 }
