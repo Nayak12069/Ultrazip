@@ -829,7 +829,7 @@ async function handleChat(username, message) {
 
   // Help
   if (msg === '!help') {
-    bot.chat('Move: !follow !stop !come | Fight: !pvp !guard !attack <name> | Info: !status !hp !inv !where !time | AI: !suggest !progress !biome !tip !craft <item> | Other: !mine !sleep !wake !remember <fact>');
+    bot.chat('Move: !follow !stop !come | Fight: !pvp !guard !attack <name> | Mode: !survival !mine !sleep !wake | Info: !status !hp !inv !where !time | AI: !suggest !progress !biome !tip !craft <item> | Other: !remember <fact>');
     return;
   }
 
@@ -844,15 +844,23 @@ async function handleChat(username, message) {
     return;
   }
 
+  // ── SURVIVAL MODE ──
+  if (msg === '!survival' || msg === '!survive' || msg.includes('go survival') || msg.includes('survival mode') || msg.includes('do your own thing') || msg.includes('go on your own') || msg.includes('survive on your own') || msg.includes('start survival') || msg.includes('fend for yourself')) {
+    startSurvivalMode();
+    bot.chat('Survival mode ON bro! I\'ll mine, hunt, fight and sleep on my own 💪 Say !follow when you\'re back!');
+    return;
+  }
+
   // ── MOVEMENT ──
   if (msg === '!follow' || msg.includes('follow me') || msg.includes('come with me')) {
+    if (state.mode === 'survival') stopSurvivalMode();
     state.following = true; state.mode = 'friend';
     bot.chat('On it bro! 🏃');
   }
   else if (msg === '!stop' || msg === 'stop' || msg.includes('stay here')) {
+    if (state.mode === 'survival') stopSurvivalMode();
     state.following = false; state.inCombat = false; state.mode = 'idle'; state.mining = false;
     bot.pvp.stop(); bot.pathfinder.setGoal(null);
-    // Restore safe movements (no digging)
     if (bot._defaultMovements) bot.pathfinder.setMovements(bot._defaultMovements);
     bot.chat('Staying here 😎');
   }
