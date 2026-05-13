@@ -118,52 +118,111 @@ const state = {
 };
 
 // ─────────────────────────────────────────────
-//  BOT CREATION
+//  BOT CREATION — in-process reconnect
 // ─────────────────────────────────────────────
-const bot = mineflayer.createBot({
-  host: CONFIG.host, port: CONFIG.port,
-  username: CONFIG.username, version: CONFIG.version, auth: CONFIG.auth,
-});
+let bot;
+let reconnecting = false;
 
-bot.loadPlugin(pathfinder);
-bot.loadPlugin(pvp);
-bot.loadPlugin(armorManager);
-bot.loadPlugin(autoEat);
+function createBot() {
+  reconnecting = false;
 
-// ─────────────────────────────────────────────
-//  SPAWN
-// ─────────────────────────────────────────────
-bot.once('spawn', async () => {
-  console.log('[Steve_AI v2] ✅ Spawned!');
-
-  const movements = new Movements(bot);
-  movements.canDig = false;
-  bot.pathfinder.setMovements(movements);
-  bot._defaultMovements = movements;
-
-  try {
-    bot.autoEat.setOpts({
-      priority: 'foodPoints', startAt: 14,
-      bannedFood: ['rotten_flesh', 'spider_eye', 'poisonous_potato'],
-    });
-    bot.autoEat.enableAuto();
-  } catch (e) { console.log('[autoEat] setup skipped:', e.message); }
-
-  // Greet based on memory
-  const greeting = await aiThink('greeting', {
-    sessionCount: memory.totalSessions,
-    knownFacts: memory.knownFacts.slice(0, 5),
-    sharedMoments: memory.sharedMoments.slice(0, 2),
-    ownerPlaystyle: memory.playstyle,
+  bot = mineflayer.createBot({
+    host: CONFIG.host, port: CONFIG.port,
+    username: CONFIG.username, version: CONFIG.version, auth: CONFIG.auth,
   });
-  bot.chat(greeting);
-  addEvent('bot_spawned');
 
-  startAILoop();
-  startCombatWatcher();
-  startHealthMonitor();
-  startLearningLoop();
-});
+  bot.loadPlugin(pathfinder);
+  bot.loadPlugin(pvp);
+  bot.loadPlugin(armorManager);
+  bot.loadPlugin(autoEat);
+
+  // ─────────────────────────────────────────────
+  //  SPAWN
+  // ─────────────────────────────────────────────
+  bot.once('spawn', async () => {
+    console.log('[Steve_AI v3] ✅ Spawned!');
+
+    const movements = new Movements(bot);
+    movements.canDig = false;
+    bot.pathfinder.setMovements(movements);
+    bot._defaultMovements = movements;
+
+    try {
+      bot.autoEat.setOpts({
+        priority: 'foodPoints', startAt: 14,
+        bannedFood: ['rotten_flesh', 'spider_eye', 'poisonous_potato'],
+      });
+      bot.autoEat.enableAuto();
+    } catch (e) { console.log('[autoEat] setup skipped:', e.message); }
+
+    // Greet based on memory
+    const greeting = await aiThink('greeting', {
+      sessionCount: memory.totalSessions,
+      knownFacts: memory.knownFacts.slice(0, 5),
+      sharedMoments: memory.sharedMoments.slice(0, 2),
+      ownerPlaystyle: memory.playstyle,
+    });
+    bot.chat(greeting);
+    addEvent('bot_spawned');
+
+    startAILoop();
+    startCombatWatcher();
+    startHealthMonitor();
+    startLearningLoop();
+  });
+
+  // ─────────────────────────────────────────────
+  //  CHAT HANDLER (registered per bot instance)
+  // ─────────────────────────────────────────────
+  bot.on('messagestr', async (message, position, jsonMsg, sender) => {
+    if (position !== 'chat') return;
+    let username = '';
+
+    if (sender && typeof sender === 'object') {
+      username = sender.name || sender.username || '';
+    } else if (typeof sender === 'string') {
+      const playerByUUID = Object.values(bot.players).find(p => p.uuid === sender);
+      if (playerByUUID) username = playerByUUID.username;
+    }
+
+    const prefixMatch = message.match(/^<([^>]+)>\s*/);
+    if (prefixMatch) {
+      if (!username) username = prefixMatch[1];
+      message = message.slice(prefixMatch[0].length);
+    }
+
+    if (username) {
+      console.log(`[CHAT] ${username}: ${message}`);
+      await handleChat(username, message);
+    }
+  });
+
+  // ─────────────────────────────────────────────
+  //  ERROR / DISCONNECT
+  // ─────────────────────────────────────────────
+  bot.on('kicked', (r) => {
+    console.log('[Steve_AI] Kicked:', JSON.stringify(r));
+    scheduleReconnect();
+  });
+  bot.on('error', (e) => {
+    console.error('[Steve_AI] Error:', e.message);
+  });
+  bot.on('end', () => {
+    console.log('[Steve_AI] Disconnected.');
+    scheduleReconnect();
+  });
+}
+
+function scheduleReconnect() {
+  if (reconnecting) return;
+  reconnecting = true;
+  console.log('[Steve_AI] Reconnecting in 8s...');
+  // Reset state so old loops don't carry over
+  state.inCombat = false;
+  state.mining = false;
+  state.currentTarget = null;
+  setTimeout(createBot, 8000);
+}
 
 // ─────────────────────────────────────────────
 //  WORLD CONTEXT — real-time game state for AI
@@ -859,32 +918,6 @@ async function handleChat(username, message) {
   }
 }
 
-// 1.19+ signed chat handler (also handles legacy via <username> fallback)
-bot.on('messagestr', async (message, position, jsonMsg, sender) => {
-  if (position !== 'chat') return;
-  let username = '';
-
-  if (sender && typeof sender === 'object') {
-    username = sender.name || sender.username || '';
-  } else if (typeof sender === 'string') {
-    // 1.19+: sender is a UUID — resolve to actual username from player list
-    const playerByUUID = Object.values(bot.players).find(p => p.uuid === sender);
-    if (playerByUUID) username = playerByUUID.username;
-  }
-
-  // Always strip <username> prefix from message text regardless of how username was resolved
-  const prefixMatch = message.match(/^<([^>]+)>\s*/);
-  if (prefixMatch) {
-    // If username wasn't resolved yet, grab it from the prefix
-    if (!username) username = prefixMatch[1];
-    message = message.slice(prefixMatch[0].length);
-  }
-
-  if (username) {
-    console.log(`[CHAT] ${username}: ${message}`);
-    await handleChat(username, message);
-  }
-});
 
 // ─────────────────────────────────────────────
 //  MOOD DETECTION
@@ -1110,20 +1143,6 @@ function lootNearby() {
 }
 
 // ─────────────────────────────────────────────
-//  ERROR HANDLING
-// ─────────────────────────────────────────────
-bot.on('kicked', (r) => { console.log('[Steve_AI] Kicked:', r); scheduleReconnect(); });
-bot.on('error', (e) => console.error('[Steve_AI] Error:', e.message));
-bot.on('end', () => { console.log('[Steve_AI] Disconnected.'); scheduleReconnect(); });
-
-function scheduleReconnect() {
-  console.log('[Steve_AI] Reconnecting in 5s...');
-  setTimeout(() => {
-    require('child_process').spawn(process.argv[0], process.argv.slice(1), { stdio: 'inherit' });
-  }, 5000);
-}
-
-// ─────────────────────────────────────────────
 //  STARTUP
 // ─────────────────────────────────────────────
 console.log(`
@@ -1137,3 +1156,5 @@ console.log(`
 ║  Memory  : ${fs.existsSync(CONFIG.memoryFile) ? '✅ Loaded saved memory' : '🆕 First session'}
 ╚══════════════════════════════════════════╝
 `);
+
+createBot();
