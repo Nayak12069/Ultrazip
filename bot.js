@@ -21,6 +21,25 @@ const fs            = require('fs');
 const path          = require('path');
 
 // ─────────────────────────────────────────────
+//  SINGLE-INSTANCE GUARD — kill any previous bot.js before starting
+// ─────────────────────────────────────────────
+(function enforceSingleInstance() {
+  const pidFile = '/tmp/steve_ai.pid';
+  const myPid = process.pid;
+  try {
+    if (fs.existsSync(pidFile)) {
+      const oldPid = parseInt(fs.readFileSync(pidFile, 'utf8').trim(), 10);
+      if (oldPid && oldPid !== myPid) {
+        try { process.kill(oldPid, 'SIGKILL'); console.log(`[guard] Killed old instance PID ${oldPid}`); }
+        catch (e) { /* already dead */ }
+      }
+    }
+  } catch (e) {}
+  fs.writeFileSync(pidFile, String(myPid));
+  process.on('exit', () => { try { fs.unlinkSync(pidFile); } catch (e) {} });
+})();
+
+// ─────────────────────────────────────────────
 //  ⚙️  CONFIG — EDIT BEFORE RUNNING
 // ─────────────────────────────────────────────
 const CONFIG = {
@@ -122,9 +141,11 @@ const state = {
 // ─────────────────────────────────────────────
 let bot;
 let reconnecting = false;
+let botGeneration = 0;  // increments each time we create a new bot — old handlers check this
 
 function createBot() {
   reconnecting = false;
+  const myGen = ++botGeneration;  // capture this bot's generation number
 
   bot = mineflayer.createBot({
     host: CONFIG.host, port: CONFIG.port,
@@ -140,6 +161,7 @@ function createBot() {
   //  SPAWN
   // ─────────────────────────────────────────────
   bot.once('spawn', async () => {
+    if (myGen !== botGeneration) return;  // stale — a newer bot already exists
     console.log('[Steve_AI v3] ✅ Spawned!');
 
     const movements = new Movements(bot);
@@ -155,7 +177,6 @@ function createBot() {
       bot.autoEat.enableAuto();
     } catch (e) { console.log('[autoEat] setup skipped:', e.message); }
 
-    // Greet based on memory
     const greeting = await aiThink('greeting', {
       sessionCount: memory.totalSessions,
       knownFacts: memory.knownFacts.slice(0, 5),
@@ -175,6 +196,7 @@ function createBot() {
   //  CHAT HANDLER (registered per bot instance)
   // ─────────────────────────────────────────────
   bot.on('messagestr', async (message, position, jsonMsg, sender) => {
+    if (myGen !== botGeneration) return;  // stale handler
     if (position !== 'chat') return;
     let username = '';
 
@@ -201,16 +223,18 @@ function createBot() {
   //  ERROR / DISCONNECT
   // ─────────────────────────────────────────────
   bot.on('kicked', (r) => {
+    if (myGen !== botGeneration) return;  // stale — newer bot already handling things
     const reason = JSON.stringify(r);
     console.log('[Steve_AI] Kicked:', reason);
-    // Duplicate login = another Nayak_Guard is online — wait longer before retrying
     const isDuplicate = reason.includes('duplicate_login');
-    scheduleReconnect(isDuplicate ? 60000 : 20000);
+    scheduleReconnect(isDuplicate ? 30000 : 15000);
   });
   bot.on('error', (e) => {
+    if (myGen !== botGeneration) return;
     console.error('[Steve_AI] Error:', e.message);
   });
   bot.on('end', () => {
+    if (myGen !== botGeneration) return;  // stale — ignore
     console.log('[Steve_AI] Disconnected.');
     scheduleReconnect();
   });

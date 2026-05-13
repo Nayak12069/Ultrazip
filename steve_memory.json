@@ -7,6 +7,26 @@
   "chatStyle": "casual",
   "recentEvents": [
     {
+      "time": 1778645612127,
+      "event": "bot_spawned"
+    },
+    {
+      "time": 1778645535115,
+      "event": "bot_spawned"
+    },
+    {
+      "time": 1778645477452,
+      "event": "bot_spawned"
+    },
+    {
+      "time": 1778645443759,
+      "event": "bot_spawned"
+    },
+    {
+      "time": 1778645362351,
+      "event": "bot_spawned"
+    },
+    {
       "time": 1778645280952,
       "event": "bot_spawned"
     },
@@ -105,32 +125,12 @@
     {
       "time": 1778644802157,
       "event": "bot_spawned"
-    },
-    {
-      "time": 1778644784133,
-      "event": "bot_spawned"
-    },
-    {
-      "time": 1778644767756,
-      "event": "bot_spawned"
-    },
-    {
-      "time": 1778644749358,
-      "event": "bot_spawned"
-    },
-    {
-      "time": 1778644732754,
-      "event": "bot_spawned"
-    },
-    {
-      "time": 1778644714567,
-      "event": "bot_spawned"
     }
   ],
   "sharedMoments": [],
   "ownerMood": "frustrated",
-  "totalSessions": 137,
+  "totalSessions": 139,
   "knownFacts": [],
   "insideJokes": [],
-  "lastSeen": "2026-05-13T04:05:38.962Z"
+  "lastSeen": "2026-05-13T04:13:30.191Z"
 }
